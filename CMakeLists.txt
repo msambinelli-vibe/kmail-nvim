@@ -149,6 +149,6 @@ if(BUILD_TESTING)
         pluginloadtest
         PROPERTIES
             ENVIRONMENT
-                "QT_QPA_PLATFORM=offscreen;KMAIL_VIM_PLUGIN_PATH=$<TARGET_FILE:kmail_vimnavigationplugin>;AKONADI_INSTANCE=kmail_vim_navigation_plugin_test;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-config"
+                "QT_QPA_PLATFORM=offscreen;KMAIL_VIM_PLUGIN_PATH=$<TARGET_FILE:kmail_vimnavigationplugin>;AKONADI_INSTANCE=kmail_vim_navigation_plugin_test;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-config;DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/kmail-vim-navigation-plugin-test-no-bus"
     )
 endif()
