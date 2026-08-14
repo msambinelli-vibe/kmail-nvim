@@ -8,7 +8,9 @@
 #include "vimmessagemanager.h"
 #include "vimshortcutmapper.h"
 
+#include <MessageList/Pane>
 #include <MessageViewer/Viewer>
+#include <PimCommon/BroadcastStatus>
 
 #include <KActionCollection>
 
@@ -26,7 +28,17 @@ VimNavigationPluginInterface::VimNavigationPluginInterface(QObject *parent)
 {
     connect(mMessageManager, &VimMessageManager::stateChanged, this, &VimNavigationPluginInterface::refreshActionStates);
     connect(mMessageManager, &VimMessageManager::statusMessage, this, [this](const QString &status) {
+        PimCommon::BroadcastStatus::instance()->setTransientStatusMsg(status);
         Q_EMIT message(status);
+    });
+    connect(mMessageManager, &VimMessageManager::tagDisplayChanged, this, [this] {
+        QTimer::singleShot(0, this, [this] {
+            if (QWidget *const widget = parentWidget()) {
+                if (auto *const pane = widget->findChild<MessageList::Pane *>()) {
+                    pane->updateTagComboBox();
+                }
+            }
+        });
     });
 }
 

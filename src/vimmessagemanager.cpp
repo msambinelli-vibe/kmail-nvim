@@ -146,6 +146,20 @@ void VimMessageManager::fetchItemsWithTags(const Akonadi::Item::List &items, Fet
     });
 }
 
+void VimMessageManager::registerTagForDisplay(const Akonadi::Tag &tag)
+{
+    KConfig config(QStringLiteral("kmail2rc"));
+    KConfigGroup group(&config, QStringLiteral("MessageListView"));
+    QStringList selectedTags = group.readEntry(QStringLiteral("TagSelected")).split(QLatin1Char(','), Qt::SkipEmptyParts);
+    const QString tagUrl = tag.url().url();
+    if (!selectedTags.contains(tagUrl)) {
+        selectedTags.push_back(tagUrl);
+        group.writeEntry(QStringLiteral("TagSelected"), selectedTags);
+        group.sync();
+    }
+    Q_EMIT tagDisplayChanged();
+}
+
 void VimMessageManager::assignTag(const QString &tagName, const Akonadi::Item::List &items)
 {
     if (mBusy || items.isEmpty()) {
@@ -176,6 +190,7 @@ void VimMessageManager::assignTag(const QString &tagName, const Akonadi::Item::L
             }
 
             if (changedItems.isEmpty()) {
+                registerTagForDisplay(tag);
                 finishCommand(tr("As mensagens selecionadas já possuem a tag '%1'.").arg(tagName));
                 return;
             }
@@ -183,16 +198,34 @@ void VimMessageManager::assignTag(const QString &tagName, const Akonadi::Item::L
             auto *modifyJob = new Akonadi::ItemModifyJob(changedItems, this);
             modifyJob->setIgnorePayload(true);
             modifyJob->disableRevisionCheck();
-            connect(modifyJob, &Akonadi::ItemModifyJob::result, this, [this, modifyJob, tag, tagName](KJob *job) {
+            connect(modifyJob, &Akonadi::ItemModifyJob::result, this, [this, changedItems, tag, tagName](KJob *job) {
                 if (job->error()) {
                     finishCommand(tr("Não foi possível atribuir a tag '%1': %2").arg(tagName, job->errorString()));
                     return;
                 }
 
-                mUndoTag = tag;
-                mUndoItems = modifyJob->items();
-                Q_EMIT stateChanged();
-                finishCommand(tr("Tag '%1' atribuída a %2 mensagem(ns).").arg(tagName).arg(mUndoItems.size()));
+                // Do not report success solely from the STORE response: fetch
+                // the items again and verify that Akonadi persisted the tag.
+                fetchItemsWithTags(changedItems, [this, tag, tagName](const Akonadi::Item::List &verifiedItems, const QString &fetchError) {
+                    if (!fetchError.isEmpty()) {
+                        finishCommand(fetchError);
+                        return;
+                    }
+
+                    const auto missingTag = std::find_if(verifiedItems.cbegin(), verifiedItems.cend(), [&tag](const Akonadi::Item &item) {
+                        return !item.hasTag(tag);
+                    });
+                    if (verifiedItems.isEmpty() || missingTag != verifiedItems.cend()) {
+                        finishCommand(tr("O Akonadi não confirmou a atribuição da tag '%1'.").arg(tagName));
+                        return;
+                    }
+
+                    mUndoTag = tag;
+                    mUndoItems = verifiedItems;
+                    registerTagForDisplay(tag);
+                    Q_EMIT stateChanged();
+                    finishCommand(tr("Tag '%1' atribuída a %2 mensagem(ns).").arg(tagName).arg(mUndoItems.size()));
+                });
             });
         });
     });

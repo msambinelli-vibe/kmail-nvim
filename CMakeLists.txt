@@ -25,6 +25,7 @@ find_package(KF6CoreAddons REQUIRED)
 find_package(KF6XmlGui REQUIRED)
 find_package(KPim6Akonadi REQUIRED)
 find_package(KPim6AkonadiMime REQUIRED)
+find_package(KPim6MessageList REQUIRED)
 find_package(KPim6MessageViewer REQUIRED)
 find_package(KPim6PimCommon REQUIRED)
 find_package(KPim6PimCommonAkonadi REQUIRED)
@@ -53,6 +54,7 @@ target_link_libraries(
         KF6::XmlGui
         KPim6::AkonadiCore
         KPim6::AkonadiMime
+        KPim6::MessageList
         KPim6::MessageViewer
         KPim6::PimCommon
         KPim6::PimCommonAkonadi

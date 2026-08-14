@@ -96,9 +96,10 @@ O [`PKGBUILD`](PKGBUILD) gera um pacote instalável e também executa os testes:
 makepkg -si
 ```
 
-Ele usa a tag Git `v1.1.0` do repositório definido em `url`. Antes de publicar o
-arquivo no AUR, gere o checksum da tarball com `updpkgsums` em vez de manter
-`SKIP`.
+O pacote segue a convenção VCS do Arch: chama-se
+`kmail-vim-navigation-git`, clona a branch `master` do repositório definido em
+`url` e calcula `pkgver` a partir do número e do hash do commit. O checksum
+`SKIP` é intencional para uma fonte Git.
 
 ## Compatibilidade
 

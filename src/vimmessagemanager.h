@@ -35,6 +35,7 @@ public:
 Q_SIGNALS:
     void stateChanged();
     void statusMessage(const QString &message);
+    void tagDisplayChanged();
 
 private:
     struct ArchiveGroup {
@@ -51,6 +52,7 @@ private:
     void finishCommand(const QString &message);
     void resolveTag(const QString &tagName, TagCallback callback);
     void fetchItemsWithTags(const Akonadi::Item::List &items, FetchCallback callback);
+    void registerTagForDisplay(const Akonadi::Tag &tag);
 
     void startDeleteAction(const Akonadi::Item::List &items);
     void startSpamAction(const Akonadi::Item::List &items);
@@ -67,4 +69,3 @@ private:
     int mApplyMessageCount = 0;
     QStringList mApplyErrors;
 };
-
