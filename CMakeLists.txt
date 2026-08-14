@@ -38,6 +38,8 @@ target_sources(
         src/vimnavigationplugin.h
         src/vimnavigationplugininterface.cpp
         src/vimnavigationplugininterface.h
+        src/messagelistmodelutils.cpp
+        src/messagelistmodelutils.h
         src/vimmessagemanager.cpp
         src/vimmessagemanager.h
         src/vimshortcutmapper.cpp
@@ -105,6 +107,29 @@ if(BUILD_TESTING)
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
+    add_executable(messagelistmodelutilstest)
+    target_sources(
+        messagelistmodelutilstest
+        PRIVATE
+            tests/messagelistmodelutilstest.cpp
+            src/messagelistmodelutils.cpp
+            src/messagelistmodelutils.h
+    )
+    target_include_directories(messagelistmodelutilstest PRIVATE src)
+    target_link_libraries(
+        messagelistmodelutilstest
+        PRIVATE
+            Qt6::Core
+            Qt6::Widgets
+            Qt6::Test
+            KPim6::AkonadiCore
+    )
+    add_test(NAME messagelistmodelutilstest COMMAND messagelistmodelutilstest)
+    set_tests_properties(
+        messagelistmodelutilstest
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
     add_executable(pluginloadtest tests/pluginloadtest.cpp)
     target_link_libraries(
         pluginloadtest
@@ -124,6 +149,6 @@ if(BUILD_TESTING)
         pluginloadtest
         PROPERTIES
             ENVIRONMENT
-                "QT_QPA_PLATFORM=offscreen;KMAIL_VIM_PLUGIN_PATH=$<TARGET_FILE:kmail_vimnavigationplugin>"
+                "QT_QPA_PLATFORM=offscreen;KMAIL_VIM_PLUGIN_PATH=$<TARGET_FILE:kmail_vimnavigationplugin>;AKONADI_INSTANCE=kmail_vim_navigation_plugin_test;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-config"
     )
 endif()

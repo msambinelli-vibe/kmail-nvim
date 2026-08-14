@@ -5,6 +5,7 @@
 
 #include "vimnavigationplugininterface.h"
 
+#include "messagelistmodelutils.h"
 #include "vimmessagemanager.h"
 #include "vimshortcutmapper.h"
 
@@ -17,10 +18,14 @@
 #include <QAction>
 #include <QDebug>
 #include <QIcon>
+#include <QItemSelectionModel>
 #include <QKeyCombination>
 #include <QKeySequence>
 #include <QTimer>
+#include <QTreeView>
 #include <QWidget>
+
+#include <algorithm>
 
 VimNavigationPluginInterface::VimNavigationPluginInterface(QObject *parent)
     : PimCommon::GenericPluginInterface(parent)
@@ -64,6 +69,15 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
                                         QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_K)));
     connect(scrollUp, &QAction::triggered, this, [this] {
         scrollMessage(false);
+    });
+
+    mSelectedAction = createPluginAction(actionCollection,
+                                         QStringLiteral("vim_toggle_selected"),
+                                         tr("Alternar seleção persistente"),
+                                         QStringLiteral("mail-tagged"),
+                                         QKeySequence(Qt::Key_Space));
+    connect(mSelectedAction, &QAction::triggered, this, [this] {
+        activateCommand(PendingCommand::ToggleSelected);
     });
 
     mDeletedAction = createPluginAction(actionCollection,
@@ -113,6 +127,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     });
 
     refreshActionStates();
+    mMessageManager->ensureRequiredTags();
 
     // KMail creates generic plugin interfaces just before it creates its own
     // navigation actions. Defer the lookup until the main widget is complete.
@@ -125,14 +140,17 @@ void VimNavigationPluginInterface::exec()
     mPendingCommand = PendingCommand::None;
 
     switch (command) {
+    case PendingCommand::ToggleSelected:
+        mMessageManager->toggleSelectedTag(mItems);
+        break;
     case PendingCommand::TagDeleted:
-        mMessageManager->assignTag(QStringLiteral("deleted"), mItems);
+        mMessageManager->assignWorkflowTag(QStringLiteral("deleted"), mItems, currentListItemIds());
         break;
     case PendingCommand::TagArchived:
-        mMessageManager->assignTag(QStringLiteral("archived"), mItems);
+        mMessageManager->assignWorkflowTag(QStringLiteral("archived"), mItems, currentListItemIds());
         break;
     case PendingCommand::TagSpam:
-        mMessageManager->assignTag(QStringLiteral("spam"), mItems);
+        mMessageManager->assignWorkflowTag(QStringLiteral("spam"), mItems, currentListItemIds());
         break;
     case PendingCommand::UndoTag:
         mMessageManager->undoLastTagAssignment();
@@ -148,8 +166,6 @@ void VimNavigationPluginInterface::exec()
 void VimNavigationPluginInterface::setItems(const Akonadi::Item::List &items)
 {
     mItems = items;
-    mHasSelection = !items.isEmpty();
-    refreshActionStates();
 }
 
 PimCommon::GenericPluginInterface::RequireTypes VimNavigationPluginInterface::requiresFeatures() const
@@ -159,7 +175,7 @@ PimCommon::GenericPluginInterface::RequireTypes VimNavigationPluginInterface::re
 
 void VimNavigationPluginInterface::updateActions(int numberOfSelectedItems, int)
 {
-    mHasSelection = numberOfSelectedItems > 0;
+    Q_UNUSED(numberOfSelectedItems)
     refreshActionStates();
 }
 
@@ -202,20 +218,44 @@ void VimNavigationPluginInterface::scrollMessage(bool down)
     }
 }
 
+QList<Akonadi::Item::Id> VimNavigationPluginInterface::currentListItemIds() const
+{
+    QWidget *const widget = parentWidget();
+    auto *const pane = widget ? widget->findChild<MessageList::Pane *>() : nullptr;
+    QWidget *const currentTab = pane ? pane->currentWidget() : nullptr;
+    QItemSelectionModel *const selectionModel = pane ? pane->currentItemSelectionModel() : nullptr;
+    // MessageList::Core::View is a QTreeView, but its static meta-object is not
+    // exported by all MessageList builds. Looking it up through the public base
+    // type keeps the plugin loadable across those builds.
+    if (currentTab && selectionModel) {
+        const auto treeViews = currentTab->findChildren<QTreeView *>();
+        const auto matchingView = std::find_if(treeViews.cbegin(), treeViews.cend(), [selectionModel](const QTreeView *candidate) {
+            return candidate->selectionModel() == selectionModel;
+        });
+        if (matchingView != treeViews.cend()) {
+            return MessageListModelUtils::visibleItemIds(*matchingView);
+        }
+    }
+    return {};
+}
+
 void VimNavigationPluginInterface::refreshActionStates()
 {
     const bool idle = !mMessageManager->isBusy();
+    if (mSelectedAction) {
+        mSelectedAction->setEnabled(idle);
+    }
     if (mDeletedAction) {
-        mDeletedAction->setEnabled(idle && mHasSelection);
+        mDeletedAction->setEnabled(idle);
     }
     if (mArchivedAction) {
-        mArchivedAction->setEnabled(idle && mHasSelection);
+        mArchivedAction->setEnabled(idle);
     }
     if (mSpamAction) {
-        mSpamAction->setEnabled(idle && mHasSelection);
+        mSpamAction->setEnabled(idle);
     }
     if (mApplyAction) {
-        mApplyAction->setEnabled(idle && mHasSelection);
+        mApplyAction->setEnabled(idle);
     }
     if (mUndoAction) {
         mUndoAction->setEnabled(idle && mMessageManager->canUndo());

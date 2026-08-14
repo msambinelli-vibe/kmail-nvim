@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 pkgname=kmail-vim-navigation-git
-pkgver=1.1.0.r1.gbae86f0
+pkgver=1.1.0.r2.g190fa5e
 pkgrel=1
 pkgdesc='Vim-style navigation and deferred message actions for KMail (master branch)'
 arch=('x86_64')

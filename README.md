@@ -9,24 +9,39 @@ de mensagens:
 - `Shift+k`: rolar a mensagem visualizada uma página para cima;
 - `gg`: primeira mensagem da lista;
 - `G`: última mensagem da lista;
-- `dd`: atribuir a tag `deleted` à mensagem atual ou às mensagens selecionadas;
-- `a`: atribuir a tag `archived` à mensagem atual ou às mensagens selecionadas;
-- `s`: atribuir a tag `spam` à mensagem atual ou às mensagens selecionadas;
+- `Espaço`: alternar a tag `selected` na mensagem atual ou nas mensagens
+  selecionadas com o mouse;
+- `dd`: atribuir a tag `deleted` às mensagens marcadas com `selected`;
+- `a`: atribuir a tag `archived` às mensagens marcadas com `selected`;
+- `s`: atribuir a tag `spam` às mensagens marcadas com `selected`;
 - `u`: desfazer a última atribuição de tag feita pelo plugin;
 - `S`: executar as ações pendentes nas mensagens selecionadas.
 
 Os atalhos originais do KMail (`N`/→ e `P`/←) continuam funcionando. O plugin
 reaproveita as ações nativas do KMail, portanto a seleção, a visualização da
 mensagem e o tratamento de conversas continuam a cargo do próprio aplicativo.
-Como `j`, `a` e `s` são reservados pelo plugin, os atalhos de uma tecla que o
-KMail atribui a **Ir para pasta**, **Responder a todos** e **Pesquisar
-mensagens** são removidos; essas ações continuam disponíveis nos menus. **Ir
-para pasta** também recebe `Ctrl+Shift+j`.
+Como `j`, `a`, `s` e `Espaço` são reservados pelo plugin, os atalhos de uma
+tecla conflitantes do KMail são removidos; as ações correspondentes continuam
+disponíveis nos menus. **Ir para pasta** também recebe `Ctrl+Shift+j`.
 
 ## Tags e aplicação
 
-Os comandos `dd`, `a` e `s` apenas marcam as mensagens. Isso permite revisar a
-seleção antes de executar `S`. Ao aplicar:
+Ao ser habilitado, o plugin garante que as tags `selected`, `deleted`,
+`archived` e `spam` existam no Akonadi e as registra entre as tags exibidas pelo
+KMail.
+
+`selected` funciona como uma seleção persistente dentro da lista atual. Ao usar
+`dd`, `a` ou `s`, o plugin processa todas as mensagens visíveis dessa lista que
+possuem `selected`. Se não houver nenhuma, ele primeiro atribui `selected` à
+seleção feita com o mouse — ou à mensagem atual — e então executa o comando. Em
+caso de sucesso, `selected` é removida do lote; em caso de erro, é preservada
+para permitir uma nova tentativa.
+
+O comando `u` desfaz a última atribuição de `deleted`, `archived` ou `spam`;
+alternar `selected` com `Espaço` não substitui esse histórico de undo.
+
+Os comandos `dd`, `a` e `s` atribuem apenas a respectiva tag de ação. Isso
+permite revisar as mensagens antes de executar `S`. Ao aplicar:
 
 - `deleted` move a mensagem para a lixeira configurada pelo Akonadi;
 - `spam` atribui o estado de spam/junk do KMail;

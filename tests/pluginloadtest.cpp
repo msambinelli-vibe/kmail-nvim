@@ -15,6 +15,7 @@
 #include <QKeyCombination>
 #include <QKeySequence>
 #include <QObject>
+#include <QSignalSpy>
 #include <QTest>
 
 class PluginLoadTest final : public QObject
@@ -58,6 +59,10 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     KActionCollection::setDefaultShortcut(replyAll, QKeySequence(Qt::Key_A));
     auto *search = collection.addAction(QStringLiteral("search_messages"));
     KActionCollection::setDefaultShortcut(search, QKeySequence(Qt::Key_S));
+    auto *nextUnread = collection.addAction(QStringLiteral("go_next_unread_text"));
+    KActionCollection::setDefaultShortcuts(
+        nextUnread,
+        {QKeySequence(Qt::Key_Space), QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))});
 
     QTRY_VERIFY(next->shortcuts().contains(QKeySequence(Qt::Key_J)));
     QVERIFY(previous->shortcuts().contains(QKeySequence(Qt::Key_K)));
@@ -68,6 +73,8 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_J))}));
     QVERIFY(!replyAll->shortcuts().contains(QKeySequence(Qt::Key_A)));
     QVERIFY(!search->shortcuts().contains(QKeySequence(Qt::Key_S)));
+    QCOMPARE(nextUnread->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))}));
 
     QVERIFY(collection.action(QStringLiteral("vim_scroll_message_down"))
                 ->shortcuts()
@@ -84,6 +91,36 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     QVERIFY(collection.action(QStringLiteral("vim_apply_tags"))
                 ->shortcuts()
                 .contains(QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S))));
+    QAction *const selectedAction = collection.action(QStringLiteral("vim_toggle_selected"));
+    QVERIFY(selectedAction);
+    QVERIFY(selectedAction->shortcuts().contains(QKeySequence(Qt::Key_Space)));
+
+    // KMail 26.04 does not call updateActions() for main-view generic plugins.
+    // Command actions must therefore be enabled before their first activation;
+    // KMail supplies the current selection in response to this signal.
+    QAction *const archiveAction = collection.action(QStringLiteral("vim_tag_archived"));
+    QVERIFY(archiveAction->isEnabled());
+    QVERIFY(selectedAction->isEnabled());
+    QSignalSpy activationSpy(interface, &PimCommon::GenericPluginInterface::emitPluginActivated);
+    QSignalSpy messageSpy(interface, &PimCommon::GenericPluginInterface::message);
+    connect(interface,
+            &PimCommon::GenericPluginInterface::emitPluginActivated,
+            interface,
+            [interface](PimCommon::AbstractGenericPluginInterface *) {
+                interface->setItems({});
+                interface->exec();
+            });
+    selectedAction->trigger();
+    archiveAction->trigger();
+    QCOMPARE(activationSpy.count(), 2);
+
+    int emptySelectionMessages = 0;
+    for (const QList<QVariant> &arguments : messageSpy) {
+        if (arguments.constFirst().toString() == QStringLiteral("Nenhuma mensagem está selecionada.")) {
+            ++emptySelectionMessages;
+        }
+    }
+    QCOMPARE(emptySelectionMessages, 2);
 }
 
 QTEST_MAIN(PluginLoadTest)

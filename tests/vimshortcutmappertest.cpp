@@ -43,6 +43,9 @@ void VimShortcutMapperTest::mapsAllNavigationAndPreservesExistingShortcuts()
     auto *first = addAction(collection, QStringLiteral("select_first_message"), {QKeySequence(QKeyCombination(Qt::AltModifier, Qt::Key_Home))});
     auto *last = addAction(collection, QStringLiteral("select_last_message"), {QKeySequence(QKeyCombination(Qt::AltModifier, Qt::Key_End))});
     auto *jump = addAction(collection, QStringLiteral("jump_to_folder"), {QKeySequence(Qt::Key_J)});
+    auto *toggleSelected = addAction(collection,
+                                     QStringLiteral("vim_toggle_selected"),
+                                     {QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))});
 
     next->setShortcuts({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_N))});
     previous->setShortcuts({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_P))});
@@ -59,10 +62,14 @@ void VimShortcutMapperTest::mapsAllNavigationAndPreservesExistingShortcuts()
                                   QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_G))}));
     QCOMPARE(jump->shortcuts(),
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_J))}));
+    QCOMPARE(toggleSelected->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space)), QKeySequence(Qt::Key_Space)}));
 
     QCOMPARE(KActionCollection::defaultShortcuts(next), QList<QKeySequence>({QKeySequence(Qt::Key_N), QKeySequence(Qt::Key_Right), QKeySequence(Qt::Key_J)}));
     QCOMPARE(KActionCollection::defaultShortcuts(previous),
              QList<QKeySequence>({QKeySequence(Qt::Key_P), QKeySequence(Qt::Key_Left), QKeySequence(Qt::Key_K)}));
+    QCOMPARE(KActionCollection::defaultShortcuts(toggleSelected),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space)), QKeySequence(Qt::Key_Space)}));
 }
 
 void VimShortcutMapperTest::reservesPluginKeysWithoutRemovingModifiedKeys()
@@ -77,12 +84,17 @@ void VimShortcutMapperTest::reservesPluginKeysWithoutRemovingModifiedKeys()
                             {QKeySequence(Qt::Key_K),
                              QKeySequence(Qt::Key_A),
                              QKeySequence(Qt::Key_S),
+                             QKeySequence(Qt::Key_Space),
                              QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_J)),
-                             QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_J))});
+                             QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_J)),
+                             QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))});
 
     QVERIFY(VimShortcutMapper::apply(&collection));
 
-    QCOMPARE(other->shortcuts(), QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_J))}));
+    QCOMPARE(other->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_J)),
+                                  QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))}));
+    QCOMPARE(KActionCollection::defaultShortcuts(other), other->shortcuts());
 }
 
 void VimShortcutMapperTest::preservesCustomJumpToFolderShortcut()
@@ -109,18 +121,21 @@ void VimShortcutMapperTest::isIdempotent()
     auto *previous = addAction(collection, QStringLiteral("go_prev_message"), {QKeySequence(Qt::Key_P)});
     auto *first = addAction(collection, QStringLiteral("select_first_message"), {});
     auto *last = addAction(collection, QStringLiteral("select_last_message"), {});
+    auto *toggleSelected = addAction(collection, QStringLiteral("vim_toggle_selected"), {});
 
     QVERIFY(VimShortcutMapper::apply(&collection));
     const auto nextShortcuts = next->shortcuts();
     const auto previousShortcuts = previous->shortcuts();
     const auto firstShortcuts = first->shortcuts();
     const auto lastShortcuts = last->shortcuts();
+    const auto toggleSelectedShortcuts = toggleSelected->shortcuts();
     QVERIFY(VimShortcutMapper::apply(&collection));
 
     QCOMPARE(next->shortcuts(), nextShortcuts);
     QCOMPARE(previous->shortcuts(), previousShortcuts);
     QCOMPARE(first->shortcuts(), firstShortcuts);
     QCOMPARE(last->shortcuts(), lastShortcuts);
+    QCOMPARE(toggleSelected->shortcuts(), toggleSelectedShortcuts);
 }
 
 void VimShortcutMapperTest::failsCleanlyWhenNavigationActionsAreMissing()

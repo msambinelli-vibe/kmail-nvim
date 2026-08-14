@@ -27,6 +27,7 @@ const QKeySequence vimFirstShortcut(QKeyCombination(Qt::NoModifier, Qt::Key_G), 
 const QKeySequence vimLastShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_G));
 const QKeySequence vimSpamShortcut(Qt::Key_S);
 const QKeySequence vimApplyShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_S));
+const QKeySequence vimToggleSelectedShortcut(Qt::Key_Space);
 const QKeySequence jumpToFolderFallback(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_J));
 
 const QList<QKeySequence> &reservedShortcuts()
@@ -43,6 +44,7 @@ const QList<QKeySequence> &reservedShortcuts()
         vimLastShortcut,
         vimSpamShortcut,
         vimApplyShortcut,
+        vimToggleSelectedShortcut,
     };
     return shortcuts;
 }
@@ -61,6 +63,7 @@ const QHash<QString, QKeySequence> &targetShortcuts()
         {QStringLiteral("vim_tag_archived"), vimArchiveShortcut},
         {QStringLiteral("vim_tag_spam"), vimSpamShortcut},
         {QStringLiteral("vim_apply_tags"), vimApplyShortcut},
+        {QStringLiteral("vim_toggle_selected"), vimToggleSelectedShortcut},
     };
     return shortcuts;
 }

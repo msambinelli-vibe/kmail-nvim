@@ -1,4 +1,8 @@
 /build/
 /.cache/
+/kmail-nvim/
+/pkg/
+/src/build/
+/src/kmail-nvim/
+/*.pkg.tar.*
 compile_commands.json
-

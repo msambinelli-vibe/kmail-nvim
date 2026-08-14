@@ -9,6 +9,7 @@
 #include <Akonadi/Tag>
 
 #include <QObject>
+#include <QHash>
 #include <QStringList>
 
 #include <functional>
@@ -28,7 +29,11 @@ public:
     [[nodiscard]] bool isBusy() const;
     [[nodiscard]] bool canUndo() const;
 
-    void assignTag(const QString &tagName, const Akonadi::Item::List &items);
+    void ensureRequiredTags();
+    void toggleSelectedTag(const Akonadi::Item::List &items);
+    void assignWorkflowTag(const QString &tagName,
+                           const Akonadi::Item::List &fallbackItems,
+                           const QList<Akonadi::Item::Id> &currentListItemIds);
     void undoLastTagAssignment();
     void applyTaggedActions(const Akonadi::Item::List &items);
 
@@ -50,9 +55,23 @@ private:
 
     void setBusy(bool busy);
     void finishCommand(const QString &message);
+    void finishRequiredTagInitialization();
     void resolveTag(const QString &tagName, TagCallback callback);
     void fetchItemsWithTags(const Akonadi::Item::List &items, FetchCallback callback);
+    void fetchItemsWithTagName(const QString &tagName, FetchCallback callback);
+    void setTagState(const Akonadi::Tag &tag, const Akonadi::Item::List &items, bool present, FetchCallback callback);
     void registerTagForDisplay(const Akonadi::Tag &tag);
+    void addFallbackSelection(const Akonadi::Tag &selectedTag,
+                              const Akonadi::Item::List &fallbackItems,
+                              const QString &workflowTagName);
+    void assignWorkflowTagToItems(const QString &tagName,
+                                  const Akonadi::Tag &selectedTag,
+                                  const Akonadi::Item::List &items);
+    void clearSelectionAfterAssignment(const QString &tagName,
+                                       const Akonadi::Tag &selectedTag,
+                                       const Akonadi::Item::List &items,
+                                       int assignedCount,
+                                       bool alreadyTagged);
 
     void startDeleteAction(const Akonadi::Item::List &items);
     void startSpamAction(const Akonadi::Item::List &items);
@@ -63,6 +82,11 @@ private:
     void finishApplyOperation(const QString &error = {});
 
     bool mBusy = false;
+    bool mTagInitializationInProgress = false;
+    int mTagInitializationAttempts = 0;
+    int mPendingTagInitializations = 0;
+    QStringList mTagInitializationErrors;
+    QHash<QString, Akonadi::Tag> mTags;
     Akonadi::Tag mUndoTag;
     Akonadi::Item::List mUndoItems;
     int mPendingApplyOperations = 0;

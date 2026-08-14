@@ -33,6 +33,7 @@ public:
 private:
     enum class PendingCommand {
         None,
+        ToggleSelected,
         TagDeleted,
         TagArchived,
         TagSpam,
@@ -47,10 +48,12 @@ private:
                                 const QKeySequence &shortcut);
     void activateCommand(PendingCommand command);
     void applyShortcuts();
+    [[nodiscard]] QList<Akonadi::Item::Id> currentListItemIds() const;
     void scrollMessage(bool down);
     void refreshActionStates();
 
     QPointer<KActionCollection> mActionCollection;
+    QPointer<QAction> mSelectedAction;
     QPointer<QAction> mDeletedAction;
     QPointer<QAction> mArchivedAction;
     QPointer<QAction> mSpamAction;
@@ -59,5 +62,4 @@ private:
     Akonadi::Item::List mItems;
     VimMessageManager *const mMessageManager;
     PendingCommand mPendingCommand = PendingCommand::None;
-    bool mHasSelection = false;
 };
