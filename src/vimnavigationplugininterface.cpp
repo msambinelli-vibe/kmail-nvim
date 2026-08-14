@@ -100,7 +100,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
 
     mApplyAction = createPluginAction(actionCollection,
                                       QStringLiteral("vim_apply_tags"),
-                                      tr("Aplicar ações das tags"),
+                                      tr("Aplicar ações das tags na pasta atual"),
                                       QStringLiteral("dialog-ok-apply"));
     connect(mApplyAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::ApplyTags);
@@ -146,7 +146,7 @@ void VimNavigationPluginInterface::exec()
         mMessageManager->undoLastTagAssignment();
         break;
     case PendingCommand::ApplyTags:
-        mMessageManager->applyTaggedActions(mItems);
+        mMessageManager->applyTaggedActions(currentFolder());
         break;
     case PendingCommand::None:
         break;
@@ -225,6 +225,13 @@ QList<Akonadi::Item::Id> VimNavigationPluginInterface::currentListItemIds() cons
         }
     }
     return {};
+}
+
+Akonadi::Collection VimNavigationPluginInterface::currentFolder() const
+{
+    QWidget *const widget = parentWidget();
+    auto *const pane = widget ? widget->findChild<MessageList::Pane *>() : nullptr;
+    return pane ? pane->currentFolder() : Akonadi::Collection();
 }
 
 void VimNavigationPluginInterface::refreshActionStates()

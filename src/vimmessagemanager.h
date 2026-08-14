@@ -35,7 +35,7 @@ public:
                            const Akonadi::Item::List &fallbackItems,
                            const QList<Akonadi::Item::Id> &currentListItemIds);
     void undoLastTagAssignment();
-    void applyTaggedActions(const Akonadi::Item::List &items);
+    void applyTaggedActions(const Akonadi::Collection &collection);
 
 Q_SIGNALS:
     void stateChanged();

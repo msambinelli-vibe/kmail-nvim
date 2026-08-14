@@ -6,6 +6,8 @@
 #include <PimCommon/GenericPlugin>
 #include <PimCommonAkonadi/GenericPluginInterface>
 
+#include <Akonadi/Item>
+
 #include <KActionCollection>
 #include <KPluginFactory>
 #include <KPluginMetaData>
@@ -119,11 +121,12 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     QVERIFY(selectedAction->isEnabled());
     QSignalSpy activationSpy(interface, &PimCommon::GenericPluginInterface::emitPluginActivated);
     QSignalSpy messageSpy(interface, &PimCommon::GenericPluginInterface::message);
+    Akonadi::Item::List suppliedItems;
     connect(interface,
             &PimCommon::GenericPluginInterface::emitPluginActivated,
             interface,
-            [interface](PimCommon::AbstractGenericPluginInterface *) {
-                interface->setItems({});
+            [interface, &suppliedItems](PimCommon::AbstractGenericPluginInterface *) {
+                interface->setItems(suppliedItems);
                 interface->exec();
             });
     selectedAction->trigger();
@@ -137,6 +140,16 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
         }
     }
     QCOMPARE(emptySelectionMessages, 2);
+
+    // Shift+S applies action tags to the entire current folder. A non-empty
+    // mouse selection must not become its input; without a Pane/current folder,
+    // routing through the folder path therefore fails synchronously here.
+    suppliedItems = {Akonadi::Item(123)};
+    const int messageCountBeforeApply = messageSpy.count();
+    applyAction->trigger();
+    QCOMPARE(activationSpy.count(), 3);
+    QCOMPARE(messageSpy.count(), messageCountBeforeApply + 1);
+    QCOMPARE(messageSpy.constLast().constFirst().toString(), QStringLiteral("Nenhuma pasta de mensagens está aberta."));
 }
 
 QTEST_MAIN(PluginLoadTest)

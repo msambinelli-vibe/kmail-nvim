@@ -15,7 +15,7 @@ de mensagens:
 - `a`: atribuir a tag `archived` às mensagens marcadas com `selected`;
 - `s`: atribuir a tag `spam` às mensagens marcadas com `selected`;
 - `u`: desfazer a última atribuição de tag feita pelo plugin;
-- `S`: executar as ações pendentes nas mensagens selecionadas.
+- `S`: executar as ações pendentes em todas as mensagens da pasta atual.
 
 Os atalhos originais do KMail (`N`/→ e `P`/←) continuam funcionando. O plugin
 reaproveita as ações nativas do KMail, portanto a seleção, a visualização da
@@ -57,9 +57,9 @@ permite revisar as mensagens antes de executar `S`. Ao aplicar:
 
 Depois de uma ação bem-sucedida, as tags de fluxo são removidas. Se uma mensagem
 tiver várias delas, a precedência é `deleted`, depois `spam`, depois `archived`,
-para que ela não seja movida duas vezes. O `S` atua somente sobre a mensagem
-atual ou sobre as mensagens selecionadas; ele não processa silenciosamente a
-caixa inteira.
+para que ela não seja movida duas vezes. O `S` procura essas tags em todas as
+mensagens da pasta atual, independentemente da seleção persistente, da seleção
+feita com o mouse e do filtro rápido da lista.
 
 ## Requisitos
 

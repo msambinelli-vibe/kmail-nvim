@@ -837,27 +837,32 @@ void VimMessageManager::undoLastTagAssignment()
     });
 }
 
-void VimMessageManager::applyTaggedActions(const Akonadi::Item::List &items)
+void VimMessageManager::applyTaggedActions(const Akonadi::Collection &collection)
 {
     if (mBusy) {
         return;
     }
-    if (items.isEmpty()) {
-        Q_EMIT statusMessage(tr("Nenhuma mensagem está selecionada."));
+    if (!collection.isValid()) {
+        Q_EMIT statusMessage(tr("Nenhuma pasta de mensagens está aberta."));
         return;
     }
 
     setBusy(true);
-    fetchItemsWithTags(items, [this](const Akonadi::Item::List &fetchedItems, const QString &fetchError) {
-        if (!fetchError.isEmpty()) {
-            finishCommand(fetchError);
+    auto *fetchJob = new Akonadi::ItemFetchJob(collection, this);
+    fetchJob->fetchScope().setFetchTags(true);
+    fetchJob->fetchScope().tagFetchScope().setFetchIdOnly(false);
+    fetchJob->fetchScope().tagFetchScope().fetchAttribute<Akonadi::TagAttribute>();
+    fetchJob->fetchScope().setAncestorRetrieval(Akonadi::ItemFetchScope::Parent);
+    connect(fetchJob, &Akonadi::ItemFetchJob::result, this, [this, fetchJob](KJob *job) {
+        if (job->error()) {
+            finishCommand(tr("Não foi possível carregar as mensagens da pasta: %1").arg(job->errorString()));
             return;
         }
 
         Akonadi::Item::List deletedItems;
         Akonadi::Item::List spamItems;
         Akonadi::Item::List archivedItems;
-        for (const Akonadi::Item &item : fetchedItems) {
+        for (const Akonadi::Item &item : fetchJob->items()) {
             // A message can carry more than one workflow tag. Destructive
             // actions win, so a message is never moved twice in one apply.
             if (hasTagNamed(item, deletedTagName)) {
@@ -874,7 +879,7 @@ void VimMessageManager::applyTaggedActions(const Akonadi::Item::List &items)
         mPendingApplyOperations = (deletedItems.isEmpty() ? 0 : 1) + (spamItems.isEmpty() ? 0 : 1) + (archivedItems.isEmpty() ? 0 : 1);
 
         if (mPendingApplyOperations == 0) {
-            finishCommand(tr("Nenhuma das mensagens selecionadas possui tags de ação."));
+            finishCommand(tr("Nenhuma mensagem desta pasta possui tags de ação."));
             return;
         }
 

@@ -15,6 +15,11 @@ class KActionCollection;
 class QAction;
 class VimMessageManager;
 
+namespace Akonadi
+{
+class Collection;
+}
+
 class VimNavigationPluginInterface final : public PimCommon::GenericPluginInterface
 {
     Q_OBJECT
@@ -47,6 +52,7 @@ private:
     void activateCommand(PendingCommand command);
     void applyShortcuts();
     void scheduleShortcutUpdate();
+    [[nodiscard]] Akonadi::Collection currentFolder() const;
     [[nodiscard]] QList<Akonadi::Item::Id> currentListItemIds() const;
     void scrollMessage(bool down);
     void refreshActionStates();
