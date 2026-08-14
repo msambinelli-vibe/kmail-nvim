@@ -5,19 +5,22 @@
 
 #include "vimmessagemanager.h"
 
+#include <Akonadi/AgentManager>
 #include <Akonadi/CollectionCreateJob>
 #include <Akonadi/CollectionFetchJob>
+#include <Akonadi/EntityDeletedAttribute>
+#include <Akonadi/ItemDeleteJob>
 #include <Akonadi/ItemFetchJob>
 #include <Akonadi/ItemFetchScope>
 #include <Akonadi/ItemModifyJob>
 #include <Akonadi/ItemMoveJob>
 #include <Akonadi/MessageFlags>
+#include <Akonadi/SpecialMailCollections>
 #include <Akonadi/TagAttribute>
 #include <Akonadi/TagCreateJob>
 #include <Akonadi/TagFetchJob>
 #include <Akonadi/TagFetchScope>
 #include <Akonadi/TagModifyJob>
-#include <Akonadi/TrashJob>
 
 #include <KJob>
 
@@ -41,6 +44,11 @@ const QString archivedTagName = QStringLiteral("archived");
 const QString spamTagName = QStringLiteral("spam");
 const QUuid pluginTagNamespace(QStringLiteral("{e1423f55-c644-4f95-900f-3c28c4de626e}"));
 
+struct DeleteActionState {
+    int pendingJobs = 0;
+    QStringList errors;
+};
+
 const QStringList &requiredTagNames()
 {
     static const QStringList names = {selectedTagName, deletedTagName, archivedTagName, spamTagName};
@@ -59,6 +67,12 @@ bool hasTagNamed(const Akonadi::Item &item, const QString &name)
     return std::any_of(tags.cbegin(), tags.cend(), [&name](const Akonadi::Tag &tag) {
         return tag.name() == name;
     });
+}
+
+bool hasOrphanedDeletedMarker(const Akonadi::Item &item)
+{
+    const auto *attribute = item.attribute<Akonadi::EntityDeletedAttribute>();
+    return attribute && !attribute->restoreCollection().isValid();
 }
 
 QString joinedErrors(const QStringList &errors)
@@ -80,6 +94,27 @@ Akonadi::Item::List uniqueValidItems(const Akonadi::Item::List &items)
         }
     }
     return result;
+}
+
+Akonadi::Collection::Id physicalCollectionId(const Akonadi::Item &item)
+{
+    const Akonadi::Collection::Id storageId = item.storageCollectionId();
+    return storageId > 0 ? storageId : item.parentCollection().id();
+}
+
+Akonadi::Collection configuredTrashCollection(const Akonadi::Collection &source)
+{
+    Akonadi::Collection trash;
+    if (!source.resource().isEmpty()) {
+        const Akonadi::AgentInstance agent = Akonadi::AgentManager::self()->instance(source.resource());
+        if (agent.isValid()) {
+            trash = Akonadi::SpecialMailCollections::self()->collection(Akonadi::SpecialMailCollections::Trash, agent);
+        }
+    }
+    if (!trash.isValid()) {
+        trash = Akonadi::SpecialMailCollections::self()->defaultCollection(Akonadi::SpecialMailCollections::Trash);
+    }
+    return trash;
 }
 
 QByteArray pluginTagGid(const QString &tagName)
@@ -390,6 +425,7 @@ void VimMessageManager::fetchItemsWithTags(const Akonadi::Item::List &items, Fet
     fetchJob->fetchScope().setFetchTags(true);
     fetchJob->fetchScope().tagFetchScope().setFetchIdOnly(false);
     fetchJob->fetchScope().tagFetchScope().fetchAttribute<Akonadi::TagAttribute>();
+    fetchJob->fetchScope().fetchAttribute<Akonadi::EntityDeletedAttribute>();
     fetchJob->fetchScope().setAncestorRetrieval(Akonadi::ItemFetchScope::Parent);
     connect(fetchJob, &Akonadi::ItemFetchJob::result, this, [fetchJob, callback = std::move(callback)](KJob *job) mutable {
         if (job->error()) {
@@ -852,8 +888,14 @@ void VimMessageManager::applyTaggedActions(const Akonadi::Collection &collection
     fetchJob->fetchScope().setFetchTags(true);
     fetchJob->fetchScope().tagFetchScope().setFetchIdOnly(false);
     fetchJob->fetchScope().tagFetchScope().fetchAttribute<Akonadi::TagAttribute>();
+    fetchJob->fetchScope().fetchAttribute<Akonadi::EntityDeletedAttribute>();
     fetchJob->fetchScope().setAncestorRetrieval(Akonadi::ItemFetchScope::Parent);
-    connect(fetchJob, &Akonadi::ItemFetchJob::result, this, [this, fetchJob](KJob *job) {
+    const Akonadi::Collection configuredTrash = configuredTrashCollection(collection);
+    const bool isTrashCollection = Akonadi::SpecialMailCollections::specialCollectionType(collection)
+            == Akonadi::SpecialMailCollections::Trash
+        || (configuredTrash.isValid() && configuredTrash.id() == collection.id());
+    const bool recoverOrphanedMarkers = !collection.isVirtual() && !isTrashCollection;
+    connect(fetchJob, &Akonadi::ItemFetchJob::result, this, [this, fetchJob, recoverOrphanedMarkers](KJob *job) {
         if (job->error()) {
             finishCommand(tr("Não foi possível carregar as mensagens da pasta: %1").arg(job->errorString()));
             return;
@@ -865,7 +907,7 @@ void VimMessageManager::applyTaggedActions(const Akonadi::Collection &collection
         for (const Akonadi::Item &item : fetchJob->items()) {
             // A message can carry more than one workflow tag. Destructive
             // actions win, so a message is never moved twice in one apply.
-            if (hasTagNamed(item, deletedTagName)) {
+            if (hasTagNamed(item, deletedTagName) || (recoverOrphanedMarkers && hasOrphanedDeletedMarker(item))) {
                 deletedItems.push_back(item);
             } else if (hasTagNamed(item, spamTagName)) {
                 spamItems.push_back(item);
@@ -897,15 +939,133 @@ void VimMessageManager::applyTaggedActions(const Akonadi::Collection &collection
 
 void VimMessageManager::startDeleteAction(const Akonadi::Item::List &items)
 {
-    auto *trashJob = new Akonadi::TrashJob(items, this);
-    connect(trashJob, &Akonadi::TrashJob::result, this, [this, items](KJob *job) {
+    QList<Akonadi::Collection::Id> sourceIds;
+    QStringList setupErrors;
+    for (const Akonadi::Item &item : items) {
+        const Akonadi::Collection::Id sourceId = physicalCollectionId(item);
+        if (sourceId <= 0) {
+            setupErrors.push_back(tr("Não foi possível identificar a pasta de origem da mensagem %1.").arg(item.id()));
+        } else if (!sourceIds.contains(sourceId)) {
+            sourceIds.push_back(sourceId);
+        }
+    }
+
+    if (sourceIds.isEmpty()) {
+        finishApplyOperation(joinedErrors(setupErrors));
+        return;
+    }
+
+    auto *fetchJob = new Akonadi::CollectionFetchJob(sourceIds, Akonadi::CollectionFetchJob::Base, this);
+    connect(fetchJob, &Akonadi::CollectionFetchJob::result, this, [this, fetchJob, items, setupErrors](KJob *job) mutable {
         if (job->error()) {
-            finishApplyOperation(tr("Falha ao mover mensagens para a lixeira: %1").arg(job->errorString()));
+            finishApplyOperation(tr("Não foi possível consultar as pastas de origem: %1").arg(job->errorString()));
             return;
         }
-        clearWorkflowTags(items, [this](const QString &error) {
-            finishApplyOperation(error);
-        });
+
+        QHash<Akonadi::Collection::Id, Akonadi::Collection> sources;
+        for (const Akonadi::Collection &collection : fetchJob->collections()) {
+            sources.insert(collection.id(), collection);
+        }
+
+        QHash<Akonadi::Collection::Id, Akonadi::Collection> destinations;
+        QHash<Akonadi::Collection::Id, Akonadi::Item::List> moveBatches;
+        Akonadi::Item::List permanentlyDelete;
+        for (const Akonadi::Item &item : items) {
+            const Akonadi::Collection::Id sourceId = physicalCollectionId(item);
+            if (sourceId <= 0) {
+                continue;
+            }
+
+            const Akonadi::Collection source = sources.value(sourceId);
+            if (!source.isValid()) {
+                setupErrors.push_back(tr("A pasta de origem da mensagem %1 não foi encontrada.").arg(item.id()));
+                continue;
+            }
+
+            const Akonadi::Collection trash = configuredTrashCollection(source);
+            if (!trash.isValid()) {
+                setupErrors.push_back(tr("Nenhuma pasta de lixeira está configurada para a conta da mensagem %1.").arg(item.id()));
+            } else if (trash.id() == source.id()) {
+                if (hasTagNamed(item, deletedTagName)) {
+                    permanentlyDelete.push_back(item);
+                } else {
+                    setupErrors.push_back(
+                        tr("A mensagem %1 já está na lixeira, mas não possui a tag 'deleted'; ela não será excluída permanentemente.")
+                            .arg(item.id()));
+                }
+            } else {
+                destinations.insert(trash.id(), trash);
+                moveBatches[trash.id()].push_back(item);
+            }
+        }
+
+        const int operationCount = moveBatches.size() + (permanentlyDelete.isEmpty() ? 0 : 1);
+        if (operationCount == 0) {
+            finishApplyOperation(joinedErrors(setupErrors));
+            return;
+        }
+
+        auto state = std::make_shared<DeleteActionState>();
+        state->pendingJobs = operationCount;
+        state->errors = std::move(setupErrors);
+        const auto completeBatch = [this, state](const QString &error) {
+            if (!error.isEmpty()) {
+                state->errors.push_back(error);
+            }
+            --state->pendingJobs;
+            if (state->pendingJobs == 0) {
+                finishApplyOperation(joinedErrors(state->errors));
+            }
+        };
+
+        for (auto it = moveBatches.cbegin(); it != moveBatches.cend(); ++it) {
+            const Akonadi::Collection destination = destinations.value(it.key());
+            const Akonadi::Item::List batch = it.value();
+            auto *moveJob = new Akonadi::ItemMoveJob(batch, destination, this);
+            connect(moveJob,
+                    &Akonadi::ItemMoveJob::result,
+                    this,
+                    [this, batch, destination, completeBatch](KJob *moveResult) {
+                        if (moveResult->error()) {
+                            completeBatch(tr("Falha ao mover mensagens para a lixeira: %1").arg(moveResult->errorString()));
+                            return;
+                        }
+
+                        fetchItemsWithTags(batch,
+                                           [this, destination, expectedCount = batch.size(), completeBatch](
+                                               const Akonadi::Item::List &movedItems, const QString &fetchError) {
+                                               if (!fetchError.isEmpty()) {
+                                                   completeBatch(tr("As mensagens foram movidas, mas o destino não pôde ser confirmado: %1")
+                                                                     .arg(fetchError));
+                                                   return;
+                                               }
+                                               const auto wrongDestination = std::find_if(
+                                                   movedItems.cbegin(),
+                                                   movedItems.cend(),
+                                                   [destination](const Akonadi::Item &item) {
+                                                       return physicalCollectionId(item) != destination.id();
+                                                   });
+                                               if (movedItems.size() != expectedCount || wrongDestination != movedItems.cend()) {
+                                                   completeBatch(tr("O Akonadi não confirmou que todas as mensagens chegaram à lixeira."));
+                                                   return;
+                                               }
+
+                                               clearDeleteMarkersAndWorkflowTags(movedItems, completeBatch);
+                                           });
+                    });
+        }
+
+        if (!permanentlyDelete.isEmpty()) {
+            auto *deleteJob = new Akonadi::ItemDeleteJob(permanentlyDelete, this);
+            connect(deleteJob, &Akonadi::ItemDeleteJob::result, this, [this, completeBatch](KJob *deleteResult) {
+                if (deleteResult->error()) {
+                    completeBatch(tr("Falha ao excluir permanentemente mensagens que já estavam na lixeira: %1")
+                                      .arg(deleteResult->errorString()));
+                } else {
+                    completeBatch({});
+                }
+            });
+        }
     });
 }
 
@@ -1153,6 +1313,60 @@ void VimMessageManager::clearWorkflowTags(const Akonadi::Item::List &items, Erro
         }
         callback({});
     });
+}
+
+void VimMessageManager::clearDeleteMarkersAndWorkflowTags(const Akonadi::Item::List &items, ErrorCallback callback)
+{
+    Akonadi::Item::List changedItems;
+    changedItems.reserve(items.size());
+    for (const Akonadi::Item &source : items) {
+        Akonadi::Item item(source);
+        bool changed = false;
+        for (const Akonadi::Tag &tag : source.tags()) {
+            if (isWorkflowTag(tag)) {
+                item.clearTag(tag);
+                changed = true;
+            }
+        }
+        if (source.hasAttribute<Akonadi::EntityDeletedAttribute>()) {
+            item.removeAttribute<Akonadi::EntityDeletedAttribute>();
+            changed = true;
+        }
+        if (changed) {
+            changedItems.push_back(item);
+        }
+    }
+
+    if (changedItems.isEmpty()) {
+        callback({});
+        return;
+    }
+
+    auto pending = std::make_shared<int>(changedItems.size());
+    auto errors = std::make_shared<QStringList>();
+    auto completion = std::make_shared<ErrorCallback>(std::move(callback));
+    for (const Akonadi::Item &item : changedItems) {
+        auto *modifyJob = new Akonadi::ItemModifyJob(item, this);
+        modifyJob->setIgnorePayload(true);
+        modifyJob->disableRevisionCheck();
+        connect(modifyJob,
+                &Akonadi::ItemModifyJob::result,
+                this,
+                [pending, errors, completion](KJob *job) {
+                    if (job->error()) {
+                        errors->push_back(job->errorString());
+                    }
+                    --*pending;
+                    if (*pending == 0) {
+                        if (errors->isEmpty()) {
+                            (*completion)({});
+                        } else {
+                            (*completion)(QObject::tr("A ação foi executada, mas não foi possível remover as tags e marcas antigas: %1")
+                                              .arg(joinedErrors(*errors)));
+                        }
+                    }
+                });
+    }
 }
 
 void VimMessageManager::finishApplyOperation(const QString &error)

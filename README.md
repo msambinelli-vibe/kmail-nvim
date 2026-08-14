@@ -50,7 +50,8 @@ alternar `selected` com `Espaço` não substitui esse histórico de undo.
 Os comandos `dd`, `a` e `s` atribuem apenas a respectiva tag de ação. Isso
 permite revisar as mensagens antes de executar `S`. Ao aplicar:
 
-- `deleted` move a mensagem para a lixeira configurada pelo Akonadi;
+- `deleted` move a mensagem para a lixeira da respectiva conta configurada no
+  KMail;
 - `spam` atribui o estado de spam/junk do KMail;
 - `archived` move a mensagem segundo a configuração de arquivamento da conta no
   KMail, incluindo pastas anuais ou mensais.
@@ -60,6 +61,11 @@ tiver várias delas, a precedência é `deleted`, depois `spam`, depois `archive
 para que ela não seja movida duas vezes. O `S` procura essas tags em todas as
 mensagens da pasta atual, independentemente da seleção persistente, da seleção
 feita com o mouse e do filtro rápido da lista.
+
+O plugin só remove as tags depois de confirmar a operação no Akonadi. Se não
+houver uma lixeira configurada, a mensagem permanece onde está e `deleted` é
+preservada. Marcadores incompletos deixados pela implementação antiga também
+são reconhecidos e corrigidos na próxima execução de `S`.
 
 ## Requisitos
 

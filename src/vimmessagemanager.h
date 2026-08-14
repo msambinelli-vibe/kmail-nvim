@@ -81,6 +81,7 @@ private:
     void archiveGroups(const QList<ArchiveGroup> &groups, qsizetype index, QStringList errors, ErrorCallback callback);
     void resolveArchiveDestination(const QString &resource, CollectionCallback callback);
     void clearWorkflowTags(const Akonadi::Item::List &items, ErrorCallback callback);
+    void clearDeleteMarkersAndWorkflowTags(const Akonadi::Item::List &items, ErrorCallback callback);
     void finishApplyOperation(const QString &error = {});
 
     bool mBusy = false;
