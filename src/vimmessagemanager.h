@@ -40,7 +40,6 @@ public:
 Q_SIGNALS:
     void stateChanged();
     void statusMessage(const QString &message);
-    void tagDisplayChanged();
 
 private:
     struct ArchiveGroup {
@@ -56,11 +55,14 @@ private:
     void setBusy(bool busy);
     void finishCommand(const QString &message);
     void finishRequiredTagInitialization();
+    void completeRequiredTagInitialization(const QString &tagName, const Akonadi::Tag &tag, const QString &error);
     void resolveTag(const QString &tagName, TagCallback callback);
+    void prepareTagForKMail(const QString &tagName, const Akonadi::Tag &tag, TagCallback callback);
+    void createRequiredTag(const QString &tagName, TagCallback callback);
     void fetchItemsWithTags(const Akonadi::Item::List &items, FetchCallback callback);
     void fetchItemsWithTagName(const QString &tagName, FetchCallback callback);
     void setTagState(const Akonadi::Tag &tag, const Akonadi::Item::List &items, bool present, FetchCallback callback);
-    void registerTagForDisplay(const Akonadi::Tag &tag);
+    bool registerTagForDisplay(const Akonadi::Tag &tag, QString *error);
     void addFallbackSelection(const Akonadi::Tag &selectedTag,
                               const Akonadi::Item::List &fallbackItems,
                               const QString &workflowTagName);

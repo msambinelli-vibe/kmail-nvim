@@ -96,7 +96,7 @@ void updateShortcuts(QAction *action, const QList<QKeySequence> &defaults, const
     }
 }
 
-void updateAction(QAction *action, const QKeySequence &targetShortcut, bool isJumpToFolder)
+void releaseReservedShortcuts(QAction *action, bool isJumpToFolder)
 {
     const auto originalDefaults = KActionCollection::defaultShortcuts(action);
     const auto originalCurrent = action->shortcuts();
@@ -112,12 +112,31 @@ void updateAction(QAction *action, const QKeySequence &targetShortcut, bool isJu
         }
     }
 
-    if (!targetShortcut.isEmpty()) {
-        appendUnique(defaults, targetShortcut);
-        appendUnique(current, targetShortcut);
-    }
     updateShortcuts(action, defaults, current);
 }
+
+void installTargetShortcut(QAction *action, const QKeySequence &targetShortcut)
+{
+    auto defaults = KActionCollection::defaultShortcuts(action);
+    auto current = action->shortcuts();
+    appendUnique(defaults, targetShortcut);
+    appendUnique(current, targetShortcut);
+    updateShortcuts(action, defaults, current);
+}
+}
+
+void VimShortcutMapper::releaseAll(KActionCollection *actionCollection)
+{
+    if (!actionCollection) {
+        return;
+    }
+
+    QAction *const jumpToFolder = actionCollection->action(QStringLiteral("jump_to_folder"));
+    for (QAction *action : actionCollection->actions()) {
+        if (action) {
+            releaseReservedShortcuts(action, action == jumpToFolder);
+        }
+    }
 }
 
 bool VimShortcutMapper::apply(KActionCollection *actionCollection)
@@ -134,12 +153,19 @@ bool VimShortcutMapper::apply(KActionCollection *actionCollection)
         return false;
     }
 
-    QAction *const jumpToFolder = actionCollection->action(QStringLiteral("jump_to_folder"));
+    // Release every reserved key before assigning any of them. In particular,
+    // this avoids a transient Shift+S collision when KMail restores a shortcut
+    // on a tag, filter, or other action before this plugin claims the key.
+    releaseAll(actionCollection);
+
     for (QAction *action : actionCollection->actions()) {
         if (!action) {
             continue;
         }
-        updateAction(action, targetShortcuts().value(action->objectName()), action == jumpToFolder);
+        const QKeySequence targetShortcut = targetShortcuts().value(action->objectName());
+        if (!targetShortcut.isEmpty()) {
+            installTargetShortcut(action, targetShortcut);
+        }
     }
 
     return true;

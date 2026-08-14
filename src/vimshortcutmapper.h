@@ -10,6 +10,15 @@ class KActionCollection;
 namespace VimShortcutMapper
 {
 /**
+ * Temporarily releases every shortcut reserved by the plugin.
+ *
+ * KMail emits KActionCollection::inserted before assigning an action's default
+ * shortcut. Calling this synchronously from that signal prevents a newly
+ * created tag/filter action from ever overlapping a plugin shortcut.
+ */
+void releaseAll(KActionCollection *actionCollection);
+
+/**
  * Installs the Vim navigation shortcuts on KMail's native actions and reserves
  * the plugin command shortcuts.
  *

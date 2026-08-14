@@ -44,6 +44,11 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
 
     KActionCollection collection(this);
     interface->createAction(&collection);
+    QAction *const applyAction = collection.action(QStringLiteral("vim_apply_tags"));
+    QVERIFY(applyAction);
+    // The plugin waits until KMail has created its native actions before it
+    // claims shortcuts, avoiding collisions during the main-window setup.
+    QVERIFY(applyAction->shortcuts().isEmpty());
 
     auto *next = collection.addAction(QStringLiteral("go_next_message"));
     KActionCollection::setDefaultShortcut(next, QKeySequence(Qt::Key_N));
@@ -63,6 +68,8 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     KActionCollection::setDefaultShortcuts(
         nextUnread,
         {QKeySequence(Qt::Key_Space), QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))});
+    auto *existingShiftS = collection.addAction(QStringLiteral("existing_shift_s"));
+    KActionCollection::setDefaultShortcut(existingShiftS, QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S)));
 
     QTRY_VERIFY(next->shortcuts().contains(QKeySequence(Qt::Key_J)));
     QVERIFY(previous->shortcuts().contains(QKeySequence(Qt::Key_K)));
@@ -75,6 +82,7 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     QVERIFY(!search->shortcuts().contains(QKeySequence(Qt::Key_S)));
     QCOMPARE(nextUnread->shortcuts(),
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))}));
+    QVERIFY(existingShiftS->shortcuts().isEmpty());
 
     QVERIFY(collection.action(QStringLiteral("vim_scroll_message_down"))
                 ->shortcuts()
@@ -88,12 +96,20 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     QVERIFY(collection.action(QStringLiteral("vim_undo_tag"))->shortcuts().contains(QKeySequence(Qt::Key_U)));
     QVERIFY(collection.action(QStringLiteral("vim_tag_archived"))->shortcuts().contains(QKeySequence(Qt::Key_A)));
     QVERIFY(collection.action(QStringLiteral("vim_tag_spam"))->shortcuts().contains(QKeySequence(Qt::Key_S)));
-    QVERIFY(collection.action(QStringLiteral("vim_apply_tags"))
-                ->shortcuts()
-                .contains(QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S))));
+    QVERIFY(applyAction->shortcuts().contains(QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S))));
     QAction *const selectedAction = collection.action(QStringLiteral("vim_toggle_selected"));
     QVERIFY(selectedAction);
     QVERIFY(selectedAction->shortcuts().contains(QKeySequence(Qt::Key_Space)));
+
+    // Tags, filters, and folder shortcuts are created by KMail after its main
+    // action setup. Newly inserted conflicts must trigger another mapping pass.
+    auto *lateShiftS = collection.addAction(QStringLiteral("late_shift_s"));
+    QVERIFY(applyAction->shortcuts().isEmpty());
+    KActionCollection::setDefaultShortcut(lateShiftS, QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S)));
+    QVERIFY(applyAction->shortcuts().isEmpty());
+    QVERIFY(lateShiftS->shortcuts().contains(QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S))));
+    QTRY_VERIFY(lateShiftS->shortcuts().isEmpty());
+    QVERIFY(applyAction->shortcuts().contains(QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S))));
 
     // KMail 26.04 does not call updateActions() for main-view generic plugins.
     // Command actions must therefore be enabled before their first activation;

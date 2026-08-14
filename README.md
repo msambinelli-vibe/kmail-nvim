@@ -28,7 +28,14 @@ disponíveis nos menus. **Ir para pasta** também recebe `Ctrl+Shift+j`.
 
 Ao ser habilitado, o plugin garante que as tags `selected`, `deleted`,
 `archived` e `spam` existam no Akonadi e as registra entre as tags exibidas pelo
-KMail.
+KMail. Elas podem ser personalizadas em **Configurações → Configurar o KMail →
+Aparência → Tags de mensagens**. Preserve esses quatro nomes, pois eles fazem
+parte do fluxo do plugin. Se essa tela já estava aberta durante a inicialização,
+feche-a e abra-a novamente para recarregar a lista.
+
+Tags criadas por versões anteriores no formato imutável do Akonadi são
+atualizadas no próprio ID para o formato editável usado pelo KMail; as
+associações existentes com mensagens são preservadas.
 
 `selected` funciona como uma seleção persistente dentro da lista atual. Ao usar
 `dd`, `a` ou `s`, o plugin processa todas as mensagens visíveis dessa lista que

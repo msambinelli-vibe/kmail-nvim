@@ -12,19 +12,22 @@
 #include <Akonadi/ItemModifyJob>
 #include <Akonadi/ItemMoveJob>
 #include <Akonadi/MessageFlags>
+#include <Akonadi/TagAttribute>
 #include <Akonadi/TagCreateJob>
 #include <Akonadi/TagFetchJob>
 #include <Akonadi/TagFetchScope>
+#include <Akonadi/TagModifyJob>
 #include <Akonadi/TrashJob>
 
-#include <KConfig>
-#include <KConfigGroup>
 #include <KJob>
+
+#include <messagelist/messagelistsettings.h>
 
 #include <QDate>
 #include <QHash>
 #include <QSet>
 #include <QTimer>
+#include <QUuid>
 
 #include <algorithm>
 #include <memory>
@@ -36,6 +39,7 @@ const QString selectedTagName = QStringLiteral("selected");
 const QString deletedTagName = QStringLiteral("deleted");
 const QString archivedTagName = QStringLiteral("archived");
 const QString spamTagName = QStringLiteral("spam");
+const QUuid pluginTagNamespace(QStringLiteral("{e1423f55-c644-4f95-900f-3c28c4de626e}"));
 
 const QStringList &requiredTagNames()
 {
@@ -78,17 +82,57 @@ Akonadi::Item::List uniqueValidItems(const Akonadi::Item::List &items)
     return result;
 }
 
-Akonadi::Tag tagNamed(const Akonadi::Tag::List &tags, const QString &name)
+QByteArray pluginTagGid(const QString &tagName)
 {
+    return QUuid::createUuidV5(pluginTagNamespace, tagName).toString(QUuid::WithoutBraces).toUtf8();
+}
+
+Akonadi::Tag requiredTag(const Akonadi::Tag::List &tags, const QString &name)
+{
+    const QByteArray currentGid = pluginTagGid(name);
+    for (const Akonadi::Tag &tag : tags) {
+        if (tag.gid() == currentGid) {
+            return tag;
+        }
+    }
+
     Akonadi::Tag result;
     for (const Akonadi::Tag &tag : tags) {
-        if (tag.name() == name && (!result.isValid() || tag.id() < result.id())) {
-            // Prefer the oldest tag if a previous version or another client
-            // accidentally created duplicate display names.
+        const bool supportedType = tag.type().isEmpty() || tag.type() == Akonadi::Tag::PLAIN
+            || tag.type() == Akonadi::Tag::GENERIC;
+        if (supportedType && tag.name() == name && (!result.isValid() || tag.id() < result.id())) {
+            // Prefer the oldest tag so associations created by earlier plugin
+            // versions stay canonical; prepareTagForKMail upgrades it in place.
             result = tag;
         }
     }
     return result;
+}
+
+QString iconNameForTag(const QString &tagName)
+{
+    if (tagName == deletedTagName) {
+        return QStringLiteral("edit-delete");
+    }
+    if (tagName == archivedTagName) {
+        return QStringLiteral("mail-archive");
+    }
+    if (tagName == spamTagName) {
+        return QStringLiteral("mail-mark-junk");
+    }
+    return QStringLiteral("mail-tagged");
+}
+
+Akonadi::Tag newRequiredTag(const QString &tagName)
+{
+    Akonadi::Tag tag;
+    tag.setType(Akonadi::Tag::GENERIC);
+    tag.setGid(pluginTagGid(tagName));
+    tag.setName(tagName);
+    auto *attribute = tag.attribute<Akonadi::TagAttribute>(Akonadi::Tag::AddIfMissing);
+    attribute->setIconName(iconNameForTag(tagName));
+    attribute->setPriority(-1);
+    return tag;
 }
 }
 
@@ -147,6 +191,7 @@ void VimMessageManager::ensureRequiredTags()
     // may be GENERIC and therefore have a UUID instead of their name as GID.
     auto *fetchJob = new Akonadi::TagFetchJob(this);
     fetchJob->fetchScope().setFetchIdOnly(false);
+    fetchJob->fetchScope().fetchAttribute<Akonadi::TagAttribute>();
     connect(fetchJob, &Akonadi::TagFetchJob::result, this, [this, fetchJob](KJob *job) {
         if (job->error()) {
             mTagInitializationErrors.push_back(tr("consulta de tags: %1").arg(job->errorString()));
@@ -154,46 +199,38 @@ void VimMessageManager::ensureRequiredTags()
             return;
         }
 
-        QStringList missingTags;
         const Akonadi::Tag::List tags = fetchJob->tags();
+        mPendingTagInitializations = requiredTagNames().size();
         for (const QString &tagName : requiredTagNames()) {
-            const auto cached = mTags.constFind(tagName);
-            const Akonadi::Tag existing = cached != mTags.cend() && cached->isValid() ? *cached : tagNamed(tags, tagName);
+            const Akonadi::Tag existing = requiredTag(tags, tagName);
             if (existing.isValid()) {
-                mTags.insert(tagName, existing);
-                registerTagForDisplay(existing);
+                prepareTagForKMail(tagName, existing, [this, tagName](const Akonadi::Tag &tag, const QString &error) {
+                    completeRequiredTagInitialization(tagName, tag, error);
+                });
             } else {
-                missingTags.push_back(tagName);
+                createRequiredTag(tagName, [this, tagName](const Akonadi::Tag &tag, const QString &error) {
+                    completeRequiredTagInitialization(tagName, tag, error);
+                });
             }
         }
-
-        if (missingTags.isEmpty()) {
-            finishRequiredTagInitialization();
-            return;
-        }
-
-        // Merge makes creation idempotent and closes the race between KMail
-        // windows that completed the lookup at the same time.
-        mPendingTagInitializations = missingTags.size();
-        for (const QString &tagName : missingTags) {
-            auto *createJob = new Akonadi::TagCreateJob(Akonadi::Tag(tagName), this);
-            createJob->setMergeIfExisting(true);
-            connect(createJob, &Akonadi::TagCreateJob::result, this, [this, createJob, tagName](KJob *createResult) {
-                if (createResult->error()) {
-                    mTagInitializationErrors.push_back(tr("%1: %2").arg(tagName, createResult->errorString()));
-                } else {
-                    const Akonadi::Tag tag = createJob->tag();
-                    mTags.insert(tagName, tag);
-                    registerTagForDisplay(tag);
-                }
-
-                --mPendingTagInitializations;
-                if (mPendingTagInitializations == 0) {
-                    finishRequiredTagInitialization();
-                }
-            });
-        }
     });
+}
+
+void VimMessageManager::completeRequiredTagInitialization(const QString &tagName,
+                                                          const Akonadi::Tag &tag,
+                                                          const QString &error)
+{
+    if (!error.isEmpty()) {
+        mTags.remove(tagName);
+        mTagInitializationErrors.push_back(tr("%1: %2").arg(tagName, error));
+    } else {
+        mTags.insert(tagName, tag);
+    }
+
+    --mPendingTagInitializations;
+    if (mPendingTagInitializations == 0) {
+        finishRequiredTagInitialization();
+    }
 }
 
 void VimMessageManager::finishRequiredTagInitialization()
@@ -220,6 +257,7 @@ void VimMessageManager::resolveTag(const QString &tagName, TagCallback callback)
 
     auto *fetchJob = new Akonadi::TagFetchJob(this);
     fetchJob->fetchScope().setFetchIdOnly(false);
+    fetchJob->fetchScope().fetchAttribute<Akonadi::TagAttribute>();
     connect(fetchJob,
             &Akonadi::TagFetchJob::result,
             this,
@@ -229,28 +267,114 @@ void VimMessageManager::resolveTag(const QString &tagName, TagCallback callback)
                     return;
                 }
 
-                const Akonadi::Tag existing = tagNamed(fetchJob->tags(), tagName);
+                const Akonadi::Tag existing = requiredTag(fetchJob->tags(), tagName);
                 if (existing.isValid()) {
-                    mTags.insert(tagName, existing);
-                    callback(existing, {});
+                    prepareTagForKMail(tagName,
+                                       existing,
+                                       [this, tagName, callback = std::move(callback)](const Akonadi::Tag &tag,
+                                                                                      const QString &error) mutable {
+                                           if (error.isEmpty()) {
+                                               mTags.insert(tagName, tag);
+                                           }
+                                           callback(tag, error);
+                                       });
                     return;
                 }
 
-                auto *createJob = new Akonadi::TagCreateJob(Akonadi::Tag(tagName), this);
-                createJob->setMergeIfExisting(true);
-                connect(createJob,
-                        &Akonadi::TagCreateJob::result,
-                        this,
-                        [this, createJob, tagName, callback = std::move(callback)](KJob *createResult) mutable {
-                            if (createResult->error()) {
-                                callback({}, tr("Não foi possível criar a tag '%1': %2")
-                                                 .arg(tagName, createResult->errorString()));
-                                return;
-                            }
-                            const Akonadi::Tag tag = createJob->tag();
-                            mTags.insert(tagName, tag);
-                            callback(tag, {});
-                        });
+                createRequiredTag(tagName,
+                                  [this, tagName, callback = std::move(callback)](const Akonadi::Tag &tag,
+                                                                                 const QString &error) mutable {
+                                      if (error.isEmpty()) {
+                                          mTags.insert(tagName, tag);
+                                      }
+                                      callback(tag, error);
+                                  });
+            });
+}
+
+void VimMessageManager::prepareTagForKMail(const QString &tagName, const Akonadi::Tag &tag, TagCallback callback)
+{
+    Akonadi::Tag preparedTag(tag);
+    bool needsModify = false;
+
+    // Older plugin versions created immutable PLAIN tags without KMail's
+    // display attribute. Akonadi permits changing the type while retaining the
+    // same ID, so existing message associations are preserved.
+    if (preparedTag.type().isEmpty() || preparedTag.type() == Akonadi::Tag::PLAIN) {
+        preparedTag.setType(Akonadi::Tag::GENERIC);
+        needsModify = true;
+    } else if (preparedTag.type() != Akonadi::Tag::GENERIC) {
+        callback({}, tr("A tag '%1' possui um tipo incompatível com o KMail.").arg(tagName));
+        return;
+    }
+
+    const bool pluginOwned = preparedTag.gid() == pluginTagGid(tagName);
+    if (pluginOwned && preparedTag.name() != tagName) {
+        preparedTag.setName(tagName);
+        needsModify = true;
+    }
+
+    const auto *existingAttribute = std::as_const(preparedTag).attribute<Akonadi::TagAttribute>();
+    if (!existingAttribute) {
+        auto *attribute = preparedTag.attribute<Akonadi::TagAttribute>(Akonadi::Tag::AddIfMissing);
+        attribute->setDisplayName(tagName);
+        attribute->setIconName(iconNameForTag(tagName));
+        attribute->setPriority(-1);
+        needsModify = true;
+    } else if (existingAttribute->displayName().isEmpty()) {
+        preparedTag.setName(tagName);
+        needsModify = true;
+    }
+
+    QString configError;
+    const bool displayRegistrationChanged = registerTagForDisplay(preparedTag, &configError);
+    if (!configError.isEmpty()) {
+        callback({}, configError);
+        return;
+    }
+
+    if (displayRegistrationChanged && !needsModify) {
+        // KMail's public combo-box update function only clears the list. A
+        // harmless attribute modification emits tagChanged, making KMail's own
+        // tag monitor fetch and repopulate the list after the shared config was
+        // updated.
+        preparedTag.setName(preparedTag.name());
+        needsModify = true;
+    }
+
+    if (!needsModify) {
+        callback(preparedTag, {});
+        return;
+    }
+
+    auto *modifyJob = new Akonadi::TagModifyJob(preparedTag, this);
+    connect(modifyJob,
+            &Akonadi::TagModifyJob::result,
+            this,
+            [preparedTag, callback = std::move(callback)](KJob *job) mutable {
+                if (job->error()) {
+                    callback({}, QObject::tr("Não foi possível preparar a tag para o KMail: %1").arg(job->errorString()));
+                    return;
+                }
+                callback(preparedTag, {});
+            });
+}
+
+void VimMessageManager::createRequiredTag(const QString &tagName, TagCallback callback)
+{
+    // A UUIDv5 gives every KMail window the same GID, so merge-if-existing also
+    // closes races between concurrent plugin instances.
+    auto *createJob = new Akonadi::TagCreateJob(newRequiredTag(tagName), this);
+    createJob->setMergeIfExisting(true);
+    connect(createJob,
+            &Akonadi::TagCreateJob::result,
+            this,
+            [this, createJob, tagName, callback = std::move(callback)](KJob *job) mutable {
+                if (job->error()) {
+                    callback({}, tr("Não foi possível criar a tag: %1").arg(job->errorString()));
+                    return;
+                }
+                prepareTagForKMail(tagName, createJob->tag(), std::move(callback));
             });
 }
 
@@ -265,6 +389,7 @@ void VimMessageManager::fetchItemsWithTags(const Akonadi::Item::List &items, Fet
     auto *fetchJob = new Akonadi::ItemFetchJob(uniqueItems, this);
     fetchJob->fetchScope().setFetchTags(true);
     fetchJob->fetchScope().tagFetchScope().setFetchIdOnly(false);
+    fetchJob->fetchScope().tagFetchScope().fetchAttribute<Akonadi::TagAttribute>();
     fetchJob->fetchScope().setAncestorRetrieval(Akonadi::ItemFetchScope::Parent);
     connect(fetchJob, &Akonadi::ItemFetchJob::result, this, [fetchJob, callback = std::move(callback)](KJob *job) mutable {
         if (job->error()) {
@@ -279,6 +404,7 @@ void VimMessageManager::fetchItemsWithTagName(const QString &tagName, FetchCallb
 {
     auto *tagFetchJob = new Akonadi::TagFetchJob(this);
     tagFetchJob->fetchScope().setFetchIdOnly(false);
+    tagFetchJob->fetchScope().fetchAttribute<Akonadi::TagAttribute>();
     connect(tagFetchJob,
             &Akonadi::TagFetchJob::result,
             this,
@@ -307,6 +433,7 @@ void VimMessageManager::fetchItemsWithTagName(const QString &tagName, FetchCallb
                     auto *itemFetchJob = new Akonadi::ItemFetchJob(tag, this);
                     itemFetchJob->fetchScope().setFetchTags(true);
                     itemFetchJob->fetchScope().tagFetchScope().setFetchIdOnly(false);
+                    itemFetchJob->fetchScope().tagFetchScope().fetchAttribute<Akonadi::TagAttribute>();
                     itemFetchJob->fetchScope().setAncestorRetrieval(Akonadi::ItemFetchScope::Parent);
                     connect(itemFetchJob,
                             &Akonadi::ItemFetchJob::result,
@@ -414,18 +541,32 @@ void VimMessageManager::setTagState(const Akonadi::Tag &tag,
             });
 }
 
-void VimMessageManager::registerTagForDisplay(const Akonadi::Tag &tag)
+bool VimMessageManager::registerTagForDisplay(const Akonadi::Tag &tag, QString *error)
 {
-    KConfig config(QStringLiteral("kmail2rc"));
-    KConfigGroup group(&config, QStringLiteral("MessageListView"));
-    QStringList selectedTags = group.readEntry(QStringLiteral("TagSelected")).split(QLatin1Char(','), Qt::SkipEmptyParts);
-    const QString tagUrl = tag.url().url();
-    if (!selectedTags.contains(tagUrl)) {
-        selectedTags.push_back(tagUrl);
-        group.writeEntry(QStringLiteral("TagSelected"), selectedTags);
-        group.sync();
+    if (!tag.isValid()) {
+        if (error) {
+            *error = tr("A tag '%1' não possui um identificador válido.").arg(tag.name());
+        }
+        return false;
     }
-    Q_EMIT tagDisplayChanged();
+
+    const QString tagUrl = tag.url().url();
+    const QString previousValue = MessageList::MessageListSettings::tagSelected();
+    QStringList selectedTags = previousValue.split(QLatin1Char(','), Qt::SkipEmptyParts);
+    if (selectedTags.contains(tagUrl)) {
+        return false;
+    }
+
+    selectedTags.push_back(tagUrl);
+    MessageList::MessageListSettings::setTagSelected(selectedTags.join(QLatin1Char(',')));
+    if (!MessageList::MessageListSettings::self()->save()) {
+        MessageList::MessageListSettings::setTagSelected(previousValue);
+        if (error) {
+            *error = tr("Não foi possível registrar a tag '%1' na configuração do KMail.").arg(tag.name());
+        }
+        return false;
+    }
+    return true;
 }
 
 void VimMessageManager::toggleSelectedTag(const Akonadi::Item::List &items)
@@ -483,7 +624,6 @@ void VimMessageManager::toggleSelectedTag(const Akonadi::Item::List &items)
                                                 finishCommand(removeError);
                                                 return;
                                             }
-                                            registerTagForDisplay(tag);
                                             finishCommand(tr("Seleção atualizada: %1 incluída(s), %2 removida(s).")
                                                               .arg(addedCount)
                                                               .arg(removedCount));
@@ -576,7 +716,6 @@ void VimMessageManager::addFallbackSelection(const Akonadi::Tag &selectedTag,
                                                finishCommand(selectError);
                                                return;
                                            }
-                                           registerTagForDisplay(selectedTag);
                                            assignWorkflowTagToItems(workflowTagName, selectedTag, fetchedItems);
                                        });
                        });
@@ -606,7 +745,6 @@ void VimMessageManager::assignWorkflowTagToItems(const QString &tagName,
             }
 
             if (changedItems.isEmpty()) {
-                registerTagForDisplay(tag);
                 clearSelectionAfterAssignment(tagName, selectedTag, fetchedItems, 0, true);
                 return;
             }
@@ -623,7 +761,6 @@ void VimMessageManager::assignWorkflowTagToItems(const QString &tagName,
 
                             mUndoTag = tag;
                             mUndoItems = verifiedItems;
-                            registerTagForDisplay(tag);
                             Q_EMIT stateChanged();
                             clearSelectionAfterAssignment(tagName, selectedTag, fetchedItems, verifiedItems.size(), false);
                         });

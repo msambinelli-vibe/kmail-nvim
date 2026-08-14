@@ -19,8 +19,6 @@
 #include <QDebug>
 #include <QIcon>
 #include <QItemSelectionModel>
-#include <QKeyCombination>
-#include <QKeySequence>
 #include <QTimer>
 #include <QTreeView>
 #include <QWidget>
@@ -36,15 +34,6 @@ VimNavigationPluginInterface::VimNavigationPluginInterface(QObject *parent)
         PimCommon::BroadcastStatus::instance()->setTransientStatusMsg(status);
         Q_EMIT message(status);
     });
-    connect(mMessageManager, &VimMessageManager::tagDisplayChanged, this, [this] {
-        QTimer::singleShot(0, this, [this] {
-            if (QWidget *const widget = parentWidget()) {
-                if (auto *const pane = widget->findChild<MessageList::Pane *>()) {
-                    pane->updateTagComboBox();
-                }
-            }
-        });
-    });
 }
 
 VimNavigationPluginInterface::~VimNavigationPluginInterface() = default;
@@ -56,8 +45,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     auto *scrollDown = createPluginAction(actionCollection,
                                           QStringLiteral("vim_scroll_message_down"),
                                           tr("Rolar mensagem uma página para baixo"),
-                                          QStringLiteral("go-down"),
-                                          QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_J)));
+                                          QStringLiteral("go-down"));
     connect(scrollDown, &QAction::triggered, this, [this] {
         scrollMessage(true);
     });
@@ -65,8 +53,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     auto *scrollUp = createPluginAction(actionCollection,
                                         QStringLiteral("vim_scroll_message_up"),
                                         tr("Rolar mensagem uma página para cima"),
-                                        QStringLiteral("go-up"),
-                                        QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_K)));
+                                        QStringLiteral("go-up"));
     connect(scrollUp, &QAction::triggered, this, [this] {
         scrollMessage(false);
     });
@@ -74,8 +61,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     mSelectedAction = createPluginAction(actionCollection,
                                          QStringLiteral("vim_toggle_selected"),
                                          tr("Alternar seleção persistente"),
-                                         QStringLiteral("mail-tagged"),
-                                         QKeySequence(Qt::Key_Space));
+                                         QStringLiteral("mail-tagged"));
     connect(mSelectedAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::ToggleSelected);
     });
@@ -83,9 +69,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     mDeletedAction = createPluginAction(actionCollection,
                                         QStringLiteral("vim_tag_deleted"),
                                         tr("Marcar para excluir"),
-                                        QStringLiteral("edit-delete"),
-                                        QKeySequence(QKeyCombination(Qt::NoModifier, Qt::Key_D),
-                                                     QKeyCombination(Qt::NoModifier, Qt::Key_D)));
+                                        QStringLiteral("edit-delete"));
     connect(mDeletedAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::TagDeleted);
     });
@@ -93,8 +77,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     mUndoAction = createPluginAction(actionCollection,
                                      QStringLiteral("vim_undo_tag"),
                                      tr("Desfazer última atribuição de tag"),
-                                     QStringLiteral("edit-undo"),
-                                     QKeySequence(Qt::Key_U));
+                                     QStringLiteral("edit-undo"));
     connect(mUndoAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::UndoTag);
     });
@@ -102,8 +85,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     mArchivedAction = createPluginAction(actionCollection,
                                          QStringLiteral("vim_tag_archived"),
                                          tr("Marcar para arquivar"),
-                                         QStringLiteral("mail-archive"),
-                                         QKeySequence(Qt::Key_A));
+                                         QStringLiteral("mail-archive"));
     connect(mArchivedAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::TagArchived);
     });
@@ -111,8 +93,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     mSpamAction = createPluginAction(actionCollection,
                                      QStringLiteral("vim_tag_spam"),
                                      tr("Marcar como spam pendente"),
-                                     QStringLiteral("mail-mark-junk"),
-                                     QKeySequence(Qt::Key_S));
+                                     QStringLiteral("mail-mark-junk"));
     connect(mSpamAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::TagSpam);
     });
@@ -120,8 +101,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     mApplyAction = createPluginAction(actionCollection,
                                       QStringLiteral("vim_apply_tags"),
                                       tr("Aplicar ações das tags"),
-                                      QStringLiteral("dialog-ok-apply"),
-                                      QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_S)));
+                                      QStringLiteral("dialog-ok-apply"));
     connect(mApplyAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::ApplyTags);
     });
@@ -129,9 +109,19 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
     refreshActionStates();
     mMessageManager->ensureRequiredTags();
 
-    // KMail creates generic plugin interfaces just before it creates its own
-    // navigation actions. Defer the lookup until the main widget is complete.
-    QTimer::singleShot(0, this, &VimNavigationPluginInterface::applyShortcuts);
+    // KMail creates generic plugin interfaces before its built-in actions and
+    // creates tag/filter actions later during startup. Re-apply the reservation
+    // after every insertion so those late actions cannot retain a Vim key.
+    connect(actionCollection, &KActionCollection::inserted, this, [this, actionCollection](QAction *) {
+        if (mActionCollection == actionCollection) {
+            // KActionCollection emits inserted() before KMail calls
+            // setDefaultShortcut(). Release the plugin targets synchronously,
+            // then restore them after the new action is fully configured.
+            VimShortcutMapper::releaseAll(actionCollection);
+            scheduleShortcutUpdate();
+        }
+    });
+    scheduleShortcutUpdate();
 }
 
 void VimNavigationPluginInterface::exec()
@@ -182,13 +172,11 @@ void VimNavigationPluginInterface::updateActions(int numberOfSelectedItems, int)
 QAction *VimNavigationPluginInterface::createPluginAction(KActionCollection *actionCollection,
                                                           const QString &name,
                                                           const QString &text,
-                                                          const QString &iconName,
-                                                          const QKeySequence &shortcut)
+                                                          const QString &iconName)
 {
     QAction *const action = actionCollection->addAction(name);
     action->setText(text);
     action->setIcon(QIcon::fromTheme(iconName));
-    KActionCollection::setDefaultShortcut(action, shortcut);
     addActionType(PimCommon::ActionType(action, PimCommon::ActionType::Message));
     return action;
 }
@@ -271,4 +259,17 @@ void VimNavigationPluginInterface::applyShortcuts()
     if (!VimShortcutMapper::apply(mActionCollection)) {
         qWarning() << "KMail Vim Navigation: navigation actions were not found";
     }
+}
+
+void VimNavigationPluginInterface::scheduleShortcutUpdate()
+{
+    if (mShortcutUpdateScheduled) {
+        return;
+    }
+
+    mShortcutUpdateScheduled = true;
+    QTimer::singleShot(0, this, [this] {
+        mShortcutUpdateScheduled = false;
+        applyShortcuts();
+    });
 }

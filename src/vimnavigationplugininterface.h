@@ -9,7 +9,6 @@
 
 #include <Akonadi/Item>
 
-#include <QKeySequence>
 #include <QPointer>
 
 class KActionCollection;
@@ -44,10 +43,10 @@ private:
     QAction *createPluginAction(KActionCollection *actionCollection,
                                 const QString &name,
                                 const QString &text,
-                                const QString &iconName,
-                                const QKeySequence &shortcut);
+                                const QString &iconName);
     void activateCommand(PendingCommand command);
     void applyShortcuts();
+    void scheduleShortcutUpdate();
     [[nodiscard]] QList<Akonadi::Item::Id> currentListItemIds() const;
     void scrollMessage(bool down);
     void refreshActionStates();
@@ -62,4 +61,5 @@ private:
     Akonadi::Item::List mItems;
     VimMessageManager *const mMessageManager;
     PendingCommand mPendingCommand = PendingCommand::None;
+    bool mShortcutUpdateScheduled = false;
 };

@@ -20,6 +20,8 @@ class VimShortcutMapperTest final : public QObject
 private Q_SLOTS:
     void mapsAllNavigationAndPreservesExistingShortcuts();
     void reservesPluginKeysWithoutRemovingModifiedKeys();
+    void releasesConflictsBeforeInstallingTargetShortcuts();
+    void releasesTargetsBeforeLateActionGetsItsShortcut();
     void preservesCustomJumpToFolderShortcut();
     void isIdempotent();
     void failsCleanlyWhenNavigationActionsAreMissing();
@@ -95,6 +97,59 @@ void VimShortcutMapperTest::reservesPluginKeysWithoutRemovingModifiedKeys()
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_J)),
                                   QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))}));
     QCOMPARE(KActionCollection::defaultShortcuts(other), other->shortcuts());
+}
+
+void VimShortcutMapperTest::releasesConflictsBeforeInstallingTargetShortcuts()
+{
+    KActionCollection collection(this);
+    addAction(collection, QStringLiteral("go_next_message"), {QKeySequence(Qt::Key_N)});
+    addAction(collection, QStringLiteral("go_prev_message"), {QKeySequence(Qt::Key_P)});
+    addAction(collection, QStringLiteral("select_first_message"), {});
+    addAction(collection, QStringLiteral("select_last_message"), {});
+
+    const QKeySequence shiftS(QKeyCombination(Qt::ShiftModifier, Qt::Key_S));
+    auto *target = addAction(collection, QStringLiteral("vim_apply_tags"), {});
+    auto *conflicting = addAction(collection, QStringLiteral("late_kmail_action"), {shiftS});
+    bool transientConflict = false;
+    connect(target, &QAction::changed, this, [target, conflicting, shiftS, &transientConflict] {
+        if (target->shortcuts().contains(shiftS) && conflicting->shortcuts().contains(shiftS)) {
+            transientConflict = true;
+        }
+    });
+
+    QVERIFY(VimShortcutMapper::apply(&collection));
+
+    QVERIFY(!transientConflict);
+    QCOMPARE(target->shortcuts(), QList<QKeySequence>({shiftS}));
+    QVERIFY(conflicting->shortcuts().isEmpty());
+}
+
+void VimShortcutMapperTest::releasesTargetsBeforeLateActionGetsItsShortcut()
+{
+    KActionCollection collection(this);
+    addAction(collection, QStringLiteral("go_next_message"), {QKeySequence(Qt::Key_N)});
+    addAction(collection, QStringLiteral("go_prev_message"), {QKeySequence(Qt::Key_P)});
+    addAction(collection, QStringLiteral("select_first_message"), {});
+    addAction(collection, QStringLiteral("select_last_message"), {});
+
+    const QKeySequence shiftS(QKeyCombination(Qt::ShiftModifier, Qt::Key_S));
+    auto *target = addAction(collection, QStringLiteral("vim_apply_tags"), {});
+    QVERIFY(VimShortcutMapper::apply(&collection));
+    QCOMPARE(target->shortcuts(), QList<QKeySequence>({shiftS}));
+
+    // This is KMail's actual order: addAction() emits inserted(), the plugin
+    // releases its targets in that callback, then KMail sets the new default.
+    auto *lateAction = collection.addAction(QStringLiteral("late_kmail_action"));
+    VimShortcutMapper::releaseAll(&collection);
+    QVERIFY(target->shortcuts().isEmpty());
+    KActionCollection::setDefaultShortcut(lateAction, shiftS);
+
+    QCOMPARE(lateAction->shortcuts(), QList<QKeySequence>({shiftS}));
+    QVERIFY(target->shortcuts().isEmpty());
+
+    QVERIFY(VimShortcutMapper::apply(&collection));
+    QVERIFY(lateAction->shortcuts().isEmpty());
+    QCOMPARE(target->shortcuts(), QList<QKeySequence>({shiftS}));
 }
 
 void VimShortcutMapperTest::preservesCustomJumpToFolderShortcut()
