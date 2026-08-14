@@ -1,0 +1,10 @@
+{
+    "KPlugin": {
+        "Description": "Navigate and process KMail messages with Vim-style commands.",
+        "Description[pt_BR]": "Navegue e processe mensagens do KMail com comandos no estilo Vim.",
+        "EnabledByDefault": true,
+        "Name": "Vim-style message navigation",
+        "Name[pt_BR]": "Navegação de mensagens no estilo Vim",
+        "Version": "1.0"
+    }
+}
