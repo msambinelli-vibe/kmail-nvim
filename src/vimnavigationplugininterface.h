@@ -41,6 +41,8 @@ private:
         TagDeleted,
         TagArchived,
         TagSpam,
+        ClearSelected,
+        ClearAllTags,
         UndoTag,
         ApplyTags,
     };
@@ -54,6 +56,8 @@ private:
     void scheduleShortcutUpdate();
     [[nodiscard]] Akonadi::Collection currentFolder() const;
     [[nodiscard]] QList<Akonadi::Item::Id> currentListItemIds() const;
+    [[nodiscard]] Akonadi::Item::Id currentMessageId() const;
+    void advanceToNextMessage();
     void scrollMessage(bool down);
     void refreshActionStates();
 
@@ -62,10 +66,14 @@ private:
     QPointer<QAction> mDeletedAction;
     QPointer<QAction> mArchivedAction;
     QPointer<QAction> mSpamAction;
+    QPointer<QAction> mClearSelectedAction;
+    QPointer<QAction> mClearAllTagsAction;
     QPointer<QAction> mUndoAction;
     QPointer<QAction> mApplyAction;
     Akonadi::Item::List mItems;
     VimMessageManager *const mMessageManager;
     PendingCommand mPendingCommand = PendingCommand::None;
+    qint64 mSelectedToggleFolderId = -1;
+    Akonadi::Item::Id mSelectedToggleItemId = -1;
     bool mShortcutUpdateScheduled = false;
 };

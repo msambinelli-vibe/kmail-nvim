@@ -10,19 +10,23 @@ de mensagens:
 - `gg`: primeira mensagem da lista;
 - `G`: última mensagem da lista;
 - `Espaço`: alternar a tag `selected` na mensagem atual ou nas mensagens
-  selecionadas com o mouse;
-- `dd`: atribuir a tag `deleted` às mensagens marcadas com `selected`;
-- `a`: atribuir a tag `archived` às mensagens marcadas com `selected`;
-- `s`: atribuir a tag `spam` às mensagens marcadas com `selected`;
-- `u`: desfazer a última atribuição de tag feita pelo plugin;
+  selecionadas com o mouse e avançar para a próxima mensagem após a confirmação;
+- `d`: alternar a tag `deleted` nas mensagens marcadas com `selected`;
+- `a`: alternar a tag `archived` nas mensagens marcadas com `selected`;
+- `s`: alternar a tag `spam` nas mensagens marcadas com `selected`;
+- `c`: remover `selected` de todas as mensagens exibidas na lista;
+- `C`: remover `selected`, `archived`, `deleted` e `spam` de todas as mensagens
+  exibidas na lista;
+- `u`: desfazer a última alternância de tag de ação feita pelo plugin;
 - `S`: executar as ações pendentes em todas as mensagens da pasta atual.
 
 Os atalhos originais do KMail (`N`/→ e `P`/←) continuam funcionando. O plugin
 reaproveita as ações nativas do KMail, portanto a seleção, a visualização da
 mensagem e o tratamento de conversas continuam a cargo do próprio aplicativo.
-Como `j`, `a`, `s` e `Espaço` são reservados pelo plugin, os atalhos de uma
-tecla conflitantes do KMail são removidos; as ações correspondentes continuam
-disponíveis nos menus. **Ir para pasta** também recebe `Ctrl+Shift+j`.
+Como `j`, `a`, `d`, `s`, `c`, `C` e `Espaço` são reservados pelo plugin, os
+atalhos de uma tecla conflitantes do KMail são removidos; as ações
+correspondentes continuam disponíveis nos menus. **Ir para pasta** também
+recebe `Ctrl+Shift+j`.
 
 ## Tags e aplicação
 
@@ -38,16 +42,21 @@ atualizadas no próprio ID para o formato editável usado pelo KMail; as
 associações existentes com mensagens são preservadas.
 
 `selected` funciona como uma seleção persistente dentro da lista atual. Ao usar
-`dd`, `a` ou `s`, o plugin processa todas as mensagens visíveis dessa lista que
+`d`, `a` ou `s`, o plugin processa todas as mensagens visíveis dessa lista que
 possuem `selected`. Se não houver nenhuma, ele primeiro atribui `selected` à
 seleção feita com o mouse — ou à mensagem atual — e então executa o comando. Em
 caso de sucesso, `selected` é removida do lote; em caso de erro, é preservada
 para permitir uma nova tentativa.
 
-O comando `u` desfaz a última atribuição de `deleted`, `archived` ou `spam`;
+`c` e `C` respeitam a lista atualmente exibida, incluindo mensagens dentro de
+conversas recolhidas e excluindo linhas ocultas pelo filtro rápido. Além das
+quatro tags, `C` neutraliza marcas de exclusão incompletas deixadas por versões
+antigas do plugin.
+
+O comando `u` desfaz a última alternância de `deleted`, `archived` ou `spam`;
 alternar `selected` com `Espaço` não substitui esse histórico de undo.
 
-Os comandos `dd`, `a` e `s` atribuem apenas a respectiva tag de ação. Isso
+Os comandos `d`, `a` e `s` alternam apenas a respectiva tag de ação. Isso
 permite revisar as mensagens antes de executar `S`. Ao aplicar:
 
 - `deleted` move a mensagem para a lixeira da respectiva conta configurada no

@@ -20,7 +20,8 @@ const QKeySequence vimNextShortcut(Qt::Key_J);
 const QKeySequence vimPreviousShortcut(Qt::Key_K);
 const QKeySequence vimScrollDownShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_J));
 const QKeySequence vimScrollUpShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_K));
-const QKeySequence vimDeleteShortcut(QKeyCombination(Qt::NoModifier, Qt::Key_D), QKeyCombination(Qt::NoModifier, Qt::Key_D));
+const QKeySequence vimDeleteShortcut(Qt::Key_D);
+const QKeySequence legacyVimDeleteShortcut(QKeyCombination(Qt::NoModifier, Qt::Key_D), QKeyCombination(Qt::NoModifier, Qt::Key_D));
 const QKeySequence vimUndoShortcut(Qt::Key_U);
 const QKeySequence vimArchiveShortcut(Qt::Key_A);
 const QKeySequence vimFirstShortcut(QKeyCombination(Qt::NoModifier, Qt::Key_G), QKeyCombination(Qt::NoModifier, Qt::Key_G));
@@ -28,6 +29,8 @@ const QKeySequence vimLastShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_G)
 const QKeySequence vimSpamShortcut(Qt::Key_S);
 const QKeySequence vimApplyShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_S));
 const QKeySequence vimToggleSelectedShortcut(Qt::Key_Space);
+const QKeySequence vimClearSelectedShortcut(Qt::Key_C);
+const QKeySequence vimClearAllTagsShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_C));
 const QKeySequence jumpToFolderFallback(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_J));
 
 const QList<QKeySequence> &reservedShortcuts()
@@ -38,6 +41,7 @@ const QList<QKeySequence> &reservedShortcuts()
         vimScrollDownShortcut,
         vimScrollUpShortcut,
         vimDeleteShortcut,
+        legacyVimDeleteShortcut,
         vimUndoShortcut,
         vimArchiveShortcut,
         vimFirstShortcut,
@@ -45,6 +49,8 @@ const QList<QKeySequence> &reservedShortcuts()
         vimSpamShortcut,
         vimApplyShortcut,
         vimToggleSelectedShortcut,
+        vimClearSelectedShortcut,
+        vimClearAllTagsShortcut,
     };
     return shortcuts;
 }
@@ -64,6 +70,8 @@ const QHash<QString, QKeySequence> &targetShortcuts()
         {QStringLiteral("vim_tag_spam"), vimSpamShortcut},
         {QStringLiteral("vim_apply_tags"), vimApplyShortcut},
         {QStringLiteral("vim_toggle_selected"), vimToggleSelectedShortcut},
+        {QStringLiteral("vim_clear_selected"), vimClearSelectedShortcut},
+        {QStringLiteral("vim_clear_all_tags"), vimClearAllTagsShortcut},
     };
     return shortcuts;
 }

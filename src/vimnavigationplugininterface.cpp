@@ -9,6 +9,8 @@
 #include "vimmessagemanager.h"
 #include "vimshortcutmapper.h"
 
+#include <Akonadi/EntityTreeModel>
+
 #include <MessageList/Pane>
 #include <MessageViewer/Viewer>
 #include <PimCommon/BroadcastStatus>
@@ -24,6 +26,7 @@
 #include <QWidget>
 
 #include <algorithm>
+#include <utility>
 
 VimNavigationPluginInterface::VimNavigationPluginInterface(QObject *parent)
     : PimCommon::GenericPluginInterface(parent)
@@ -33,6 +36,22 @@ VimNavigationPluginInterface::VimNavigationPluginInterface(QObject *parent)
     connect(mMessageManager, &VimMessageManager::statusMessage, this, [this](const QString &status) {
         PimCommon::BroadcastStatus::instance()->setTransientStatusMsg(status);
         Q_EMIT message(status);
+    });
+    connect(mMessageManager, &VimMessageManager::selectedTagChangeFinished, this, [this](bool success) {
+        const qint64 originFolderId = std::exchange(mSelectedToggleFolderId, -1);
+        const Akonadi::Item::Id originItemId = std::exchange(mSelectedToggleItemId, -1);
+        if (!success) {
+            return;
+        }
+
+        const Akonadi::Collection folder = currentFolder();
+        if (originFolderId > 0 && (!folder.isValid() || folder.id() != originFolderId)) {
+            return;
+        }
+        if (originItemId > 0 && currentMessageId() != originItemId) {
+            return;
+        }
+        advanceToNextMessage();
     });
 }
 
@@ -68,7 +87,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
 
     mDeletedAction = createPluginAction(actionCollection,
                                         QStringLiteral("vim_tag_deleted"),
-                                        tr("Marcar para excluir"),
+                                        tr("Alternar marcação para excluir"),
                                         QStringLiteral("edit-delete"));
     connect(mDeletedAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::TagDeleted);
@@ -76,7 +95,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
 
     mUndoAction = createPluginAction(actionCollection,
                                      QStringLiteral("vim_undo_tag"),
-                                     tr("Desfazer última atribuição de tag"),
+                                     tr("Desfazer última alternância de tag"),
                                      QStringLiteral("edit-undo"));
     connect(mUndoAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::UndoTag);
@@ -84,7 +103,7 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
 
     mArchivedAction = createPluginAction(actionCollection,
                                          QStringLiteral("vim_tag_archived"),
-                                         tr("Marcar para arquivar"),
+                                         tr("Alternar marcação para arquivar"),
                                          QStringLiteral("mail-archive"));
     connect(mArchivedAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::TagArchived);
@@ -92,10 +111,26 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
 
     mSpamAction = createPluginAction(actionCollection,
                                      QStringLiteral("vim_tag_spam"),
-                                     tr("Marcar como spam pendente"),
+                                     tr("Alternar marcação como spam pendente"),
                                      QStringLiteral("mail-mark-junk"));
     connect(mSpamAction, &QAction::triggered, this, [this] {
         activateCommand(PendingCommand::TagSpam);
+    });
+
+    mClearSelectedAction = createPluginAction(actionCollection,
+                                              QStringLiteral("vim_clear_selected"),
+                                              tr("Limpar seleção persistente da lista"),
+                                              QStringLiteral("edit-clear"));
+    connect(mClearSelectedAction, &QAction::triggered, this, [this] {
+        activateCommand(PendingCommand::ClearSelected);
+    });
+
+    mClearAllTagsAction = createPluginAction(actionCollection,
+                                             QStringLiteral("vim_clear_all_tags"),
+                                             tr("Limpar todas as tags do plugin na lista"),
+                                             QStringLiteral("edit-clear-all"));
+    connect(mClearAllTagsAction, &QAction::triggered, this, [this] {
+        activateCommand(PendingCommand::ClearAllTags);
     });
 
     mApplyAction = createPluginAction(actionCollection,
@@ -131,16 +166,28 @@ void VimNavigationPluginInterface::exec()
 
     switch (command) {
     case PendingCommand::ToggleSelected:
+        mSelectedToggleFolderId = currentFolder().id();
+        mSelectedToggleItemId = currentMessageId();
         mMessageManager->toggleSelectedTag(mItems);
         break;
     case PendingCommand::TagDeleted:
-        mMessageManager->assignWorkflowTag(QStringLiteral("deleted"), mItems, currentListItemIds());
+        mMessageManager->toggleWorkflowTag(QStringLiteral("deleted"), mItems, currentListItemIds());
         break;
     case PendingCommand::TagArchived:
-        mMessageManager->assignWorkflowTag(QStringLiteral("archived"), mItems, currentListItemIds());
+        mMessageManager->toggleWorkflowTag(QStringLiteral("archived"), mItems, currentListItemIds());
         break;
     case PendingCommand::TagSpam:
-        mMessageManager->assignWorkflowTag(QStringLiteral("spam"), mItems, currentListItemIds());
+        mMessageManager->toggleWorkflowTag(QStringLiteral("spam"), mItems, currentListItemIds());
+        break;
+    case PendingCommand::ClearSelected:
+        mMessageManager->clearTagsFromList({QStringLiteral("selected")}, currentListItemIds());
+        break;
+    case PendingCommand::ClearAllTags:
+        mMessageManager->clearTagsFromList({QStringLiteral("selected"),
+                                            QStringLiteral("archived"),
+                                            QStringLiteral("deleted"),
+                                            QStringLiteral("spam")},
+                                           currentListItemIds());
         break;
     case PendingCommand::UndoTag:
         mMessageManager->undoLastTagAssignment();
@@ -206,6 +253,14 @@ void VimNavigationPluginInterface::scrollMessage(bool down)
     }
 }
 
+void VimNavigationPluginInterface::advanceToNextMessage()
+{
+    QAction *const nextMessage = mActionCollection ? mActionCollection->action(QStringLiteral("go_next_message")) : nullptr;
+    if (nextMessage && nextMessage->isEnabled()) {
+        nextMessage->trigger();
+    }
+}
+
 QList<Akonadi::Item::Id> VimNavigationPluginInterface::currentListItemIds() const
 {
     QWidget *const widget = parentWidget();
@@ -225,6 +280,23 @@ QList<Akonadi::Item::Id> VimNavigationPluginInterface::currentListItemIds() cons
         }
     }
     return {};
+}
+
+Akonadi::Item::Id VimNavigationPluginInterface::currentMessageId() const
+{
+    QWidget *const widget = parentWidget();
+    auto *const pane = widget ? widget->findChild<MessageList::Pane *>() : nullptr;
+    QItemSelectionModel *const selectionModel = pane ? pane->currentItemSelectionModel() : nullptr;
+    if (!selectionModel) {
+        return -1;
+    }
+
+    const QModelIndex currentIndex = selectionModel->currentIndex();
+    if (!currentIndex.isValid()) {
+        return -1;
+    }
+    const Akonadi::Item::Id id = currentIndex.data(Akonadi::EntityTreeModel::ItemIdRole).toLongLong();
+    return id > 0 ? id : -1;
 }
 
 Akonadi::Collection VimNavigationPluginInterface::currentFolder() const
@@ -248,6 +320,12 @@ void VimNavigationPluginInterface::refreshActionStates()
     }
     if (mSpamAction) {
         mSpamAction->setEnabled(idle);
+    }
+    if (mClearSelectedAction) {
+        mClearSelectedAction->setEnabled(idle);
+    }
+    if (mClearAllTagsAction) {
+        mClearAllTagsAction->setEnabled(idle);
     }
     if (mApplyAction) {
         mApplyAction->setEnabled(idle);

@@ -31,15 +31,17 @@ public:
 
     void ensureRequiredTags();
     void toggleSelectedTag(const Akonadi::Item::List &items);
-    void assignWorkflowTag(const QString &tagName,
+    void toggleWorkflowTag(const QString &tagName,
                            const Akonadi::Item::List &fallbackItems,
                            const QList<Akonadi::Item::Id> &currentListItemIds);
+    void clearTagsFromList(const QStringList &tagNames, const QList<Akonadi::Item::Id> &currentListItemIds);
     void undoLastTagAssignment();
     void applyTaggedActions(const Akonadi::Collection &collection);
 
 Q_SIGNALS:
     void stateChanged();
     void statusMessage(const QString &message);
+    void selectedTagChangeFinished(bool success);
 
 private:
     struct ArchiveGroup {
@@ -62,18 +64,15 @@ private:
     void fetchItemsWithTags(const Akonadi::Item::List &items, FetchCallback callback);
     void fetchItemsWithTagName(const QString &tagName, FetchCallback callback);
     void setTagState(const Akonadi::Tag &tag, const Akonadi::Item::List &items, bool present, FetchCallback callback);
+    void setWorkflowTagStateAndClearSelection(const Akonadi::Tag &tag,
+                                              const Akonadi::Item::List &items,
+                                              bool present,
+                                              FetchCallback callback);
     bool registerTagForDisplay(const Akonadi::Tag &tag, QString *error);
     void addFallbackSelection(const Akonadi::Tag &selectedTag,
                               const Akonadi::Item::List &fallbackItems,
                               const QString &workflowTagName);
-    void assignWorkflowTagToItems(const QString &tagName,
-                                  const Akonadi::Tag &selectedTag,
-                                  const Akonadi::Item::List &items);
-    void clearSelectionAfterAssignment(const QString &tagName,
-                                       const Akonadi::Tag &selectedTag,
-                                       const Akonadi::Item::List &items,
-                                       int assignedCount,
-                                       bool alreadyTagged);
+    void toggleWorkflowTagOnItems(const QString &tagName, const Akonadi::Item::List &items);
 
     void startDeleteAction(const Akonadi::Item::List &items);
     void startSpamAction(const Akonadi::Item::List &items);
@@ -91,7 +90,8 @@ private:
     QStringList mTagInitializationErrors;
     QHash<QString, Akonadi::Tag> mTags;
     Akonadi::Tag mUndoTag;
-    Akonadi::Item::List mUndoItems;
+    Akonadi::Item::List mUndoAddedItems;
+    Akonadi::Item::List mUndoRemovedItems;
     int mPendingApplyOperations = 0;
     int mApplyMessageCount = 0;
     QStringList mApplyErrors;

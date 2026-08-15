@@ -48,6 +48,17 @@ void VimShortcutMapperTest::mapsAllNavigationAndPreservesExistingShortcuts()
     auto *toggleSelected = addAction(collection,
                                      QStringLiteral("vim_toggle_selected"),
                                      {QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))});
+    auto *deleted = addAction(collection,
+                              QStringLiteral("vim_tag_deleted"),
+                              {QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_D)),
+                               QKeySequence(QKeyCombination(Qt::NoModifier, Qt::Key_D),
+                                            QKeyCombination(Qt::NoModifier, Qt::Key_D))});
+    auto *clearSelected = addAction(collection,
+                                    QStringLiteral("vim_clear_selected"),
+                                    {QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_C))});
+    auto *clearAll = addAction(collection,
+                               QStringLiteral("vim_clear_all_tags"),
+                               {QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_C))});
 
     next->setShortcuts({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_N))});
     previous->setShortcuts({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_P))});
@@ -66,12 +77,22 @@ void VimShortcutMapperTest::mapsAllNavigationAndPreservesExistingShortcuts()
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_J))}));
     QCOMPARE(toggleSelected->shortcuts(),
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space)), QKeySequence(Qt::Key_Space)}));
+    QCOMPARE(deleted->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_D)), QKeySequence(Qt::Key_D)}));
+    QCOMPARE(clearSelected->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_C)), QKeySequence(Qt::Key_C)}));
+    QCOMPARE(clearAll->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_C)),
+                                  QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_C))}));
 
     QCOMPARE(KActionCollection::defaultShortcuts(next), QList<QKeySequence>({QKeySequence(Qt::Key_N), QKeySequence(Qt::Key_Right), QKeySequence(Qt::Key_J)}));
     QCOMPARE(KActionCollection::defaultShortcuts(previous),
              QList<QKeySequence>({QKeySequence(Qt::Key_P), QKeySequence(Qt::Key_Left), QKeySequence(Qt::Key_K)}));
     QCOMPARE(KActionCollection::defaultShortcuts(toggleSelected),
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space)), QKeySequence(Qt::Key_Space)}));
+    QCOMPARE(KActionCollection::defaultShortcuts(deleted), deleted->shortcuts());
+    QCOMPARE(KActionCollection::defaultShortcuts(clearSelected), clearSelected->shortcuts());
+    QCOMPARE(KActionCollection::defaultShortcuts(clearAll), clearAll->shortcuts());
 }
 
 void VimShortcutMapperTest::reservesPluginKeysWithoutRemovingModifiedKeys()
@@ -85,16 +106,27 @@ void VimShortcutMapperTest::reservesPluginKeysWithoutRemovingModifiedKeys()
                             QStringLiteral("other_action"),
                             {QKeySequence(Qt::Key_K),
                              QKeySequence(Qt::Key_A),
+                             QKeySequence(Qt::Key_D),
+                             QKeySequence(QKeyCombination(Qt::NoModifier, Qt::Key_D),
+                                          QKeyCombination(Qt::NoModifier, Qt::Key_D)),
                              QKeySequence(Qt::Key_S),
+                             QKeySequence(Qt::Key_C),
+                             QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_C)),
                              QKeySequence(Qt::Key_Space),
                              QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_J)),
                              QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_J)),
+                             QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_D)),
+                             QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_C)),
+                             QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_C)),
                              QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))});
 
     QVERIFY(VimShortcutMapper::apply(&collection));
 
     QCOMPARE(other->shortcuts(),
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_J)),
+                                  QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_D)),
+                                  QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_C)),
+                                  QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_C)),
                                   QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Space))}));
     QCOMPARE(KActionCollection::defaultShortcuts(other), other->shortcuts());
 }
@@ -177,6 +209,9 @@ void VimShortcutMapperTest::isIdempotent()
     auto *first = addAction(collection, QStringLiteral("select_first_message"), {});
     auto *last = addAction(collection, QStringLiteral("select_last_message"), {});
     auto *toggleSelected = addAction(collection, QStringLiteral("vim_toggle_selected"), {});
+    auto *deleted = addAction(collection, QStringLiteral("vim_tag_deleted"), {});
+    auto *clearSelected = addAction(collection, QStringLiteral("vim_clear_selected"), {});
+    auto *clearAll = addAction(collection, QStringLiteral("vim_clear_all_tags"), {});
 
     QVERIFY(VimShortcutMapper::apply(&collection));
     const auto nextShortcuts = next->shortcuts();
@@ -184,6 +219,9 @@ void VimShortcutMapperTest::isIdempotent()
     const auto firstShortcuts = first->shortcuts();
     const auto lastShortcuts = last->shortcuts();
     const auto toggleSelectedShortcuts = toggleSelected->shortcuts();
+    const auto deletedShortcuts = deleted->shortcuts();
+    const auto clearSelectedShortcuts = clearSelected->shortcuts();
+    const auto clearAllShortcuts = clearAll->shortcuts();
     QVERIFY(VimShortcutMapper::apply(&collection));
 
     QCOMPARE(next->shortcuts(), nextShortcuts);
@@ -191,6 +229,9 @@ void VimShortcutMapperTest::isIdempotent()
     QCOMPARE(first->shortcuts(), firstShortcuts);
     QCOMPARE(last->shortcuts(), lastShortcuts);
     QCOMPARE(toggleSelected->shortcuts(), toggleSelectedShortcuts);
+    QCOMPARE(deleted->shortcuts(), deletedShortcuts);
+    QCOMPARE(clearSelected->shortcuts(), clearSelectedShortcuts);
+    QCOMPARE(clearAll->shortcuts(), clearAllShortcuts);
 }
 
 void VimShortcutMapperTest::failsCleanlyWhenNavigationActionsAreMissing()

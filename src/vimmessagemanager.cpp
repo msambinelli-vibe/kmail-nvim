@@ -183,7 +183,7 @@ bool VimMessageManager::isBusy() const
 
 bool VimMessageManager::canUndo() const
 {
-    return mUndoTag.isValid() && !mUndoItems.isEmpty();
+    return mUndoTag.isValid() && (!mUndoAddedItems.isEmpty() || !mUndoRemovedItems.isEmpty());
 }
 
 void VimMessageManager::setBusy(bool busy)
@@ -577,6 +577,79 @@ void VimMessageManager::setTagState(const Akonadi::Tag &tag,
             });
 }
 
+void VimMessageManager::setWorkflowTagStateAndClearSelection(const Akonadi::Tag &tag,
+                                                             const Akonadi::Item::List &items,
+                                                             bool present,
+                                                             FetchCallback callback)
+{
+    const Akonadi::Item::List uniqueItems = uniqueValidItems(items);
+    if (uniqueItems.isEmpty()) {
+        callback({}, {});
+        return;
+    }
+
+    Akonadi::Tag::List tagsToClear;
+    for (const Akonadi::Item &item : uniqueItems) {
+        for (const Akonadi::Tag &itemTag : item.tags()) {
+            const bool clearsSelected = itemTag.name() == selectedTagName;
+            const bool clearsWorkflowTag = !present && itemTag.name() == tag.name();
+            if ((clearsSelected || clearsWorkflowTag) && !tagsToClear.contains(itemTag)) {
+                tagsToClear.push_back(itemTag);
+            }
+        }
+    }
+
+    Akonadi::Item::List changedItems;
+    changedItems.reserve(uniqueItems.size());
+    for (const Akonadi::Item &source : uniqueItems) {
+        Akonadi::Item item(source);
+        if (present) {
+            item.setTag(tag);
+        }
+        // Every clone carries the same delta because bulk ItemModifyJob uses
+        // the first item's tag changes for the complete batch.
+        for (const Akonadi::Tag &tagToClear : tagsToClear) {
+            item.clearTag(tagToClear);
+        }
+        changedItems.push_back(item);
+    }
+
+    auto *modifyJob = new Akonadi::ItemModifyJob(changedItems, this);
+    modifyJob->setIgnorePayload(true);
+    modifyJob->disableRevisionCheck();
+    connect(modifyJob,
+            &Akonadi::ItemModifyJob::result,
+            this,
+            [this, changedItems, tag, present, callback = std::move(callback)](KJob *job) mutable {
+                if (job->error()) {
+                    callback({}, tr("Não foi possível alternar a tag '%1': %2").arg(tag.name(), job->errorString()));
+                    return;
+                }
+
+                fetchItemsWithTags(
+                    changedItems,
+                    [tag, present, expectedCount = changedItems.size(), callback = std::move(callback)](
+                        const Akonadi::Item::List &verifiedItems, const QString &fetchError) mutable {
+                        if (!fetchError.isEmpty()) {
+                            callback({}, fetchError);
+                            return;
+                        }
+
+                        const auto wrongState = std::find_if(
+                            verifiedItems.cbegin(), verifiedItems.cend(), [&tag, present](const Akonadi::Item &item) {
+                                return hasTagNamed(item, tag.name()) != present || hasTagNamed(item, selectedTagName);
+                            });
+                        if (verifiedItems.size() != expectedCount || wrongState != verifiedItems.cend()) {
+                            callback({},
+                                     QObject::tr("O Akonadi não confirmou a alternância da tag '%1' e a limpeza da seleção.")
+                                         .arg(tag.name()));
+                            return;
+                        }
+                        callback(verifiedItems, {});
+                    });
+            });
+}
+
 bool VimMessageManager::registerTagForDisplay(const Akonadi::Tag &tag, QString *error)
 {
     if (!tag.isValid()) {
@@ -608,10 +681,12 @@ bool VimMessageManager::registerTagForDisplay(const Akonadi::Tag &tag, QString *
 void VimMessageManager::toggleSelectedTag(const Akonadi::Item::List &items)
 {
     if (mBusy) {
+        Q_EMIT selectedTagChangeFinished(false);
         return;
     }
     if (items.isEmpty()) {
         Q_EMIT statusMessage(tr("Nenhuma mensagem está selecionada."));
+        Q_EMIT selectedTagChangeFinished(false);
         return;
     }
 
@@ -619,12 +694,14 @@ void VimMessageManager::toggleSelectedTag(const Akonadi::Item::List &items)
     resolveTag(selectedTagName, [this, items](const Akonadi::Tag &tag, const QString &tagError) {
         if (!tagError.isEmpty()) {
             finishCommand(tagError);
+            Q_EMIT selectedTagChangeFinished(false);
             return;
         }
 
         fetchItemsWithTags(items, [this, tag](const Akonadi::Item::List &fetchedItems, const QString &fetchError) {
             if (!fetchError.isEmpty()) {
                 finishCommand(fetchError);
+                Q_EMIT selectedTagChangeFinished(false);
                 return;
             }
 
@@ -639,6 +716,7 @@ void VimMessageManager::toggleSelectedTag(const Akonadi::Item::List &items)
             }
             if (addItems.isEmpty() && removeItems.isEmpty()) {
                 finishCommand(tr("Nenhuma mensagem válida está selecionada."));
+                Q_EMIT selectedTagChangeFinished(false);
                 return;
             }
 
@@ -650,6 +728,7 @@ void VimMessageManager::toggleSelectedTag(const Akonadi::Item::List &items)
                         [this, tag, removeItems, addedCount, removedCount](const Akonadi::Item::List &, const QString &addError) {
                             if (!addError.isEmpty()) {
                                 finishCommand(addError);
+                                Q_EMIT selectedTagChangeFinished(false);
                                 return;
                             }
                             setTagState(tag,
@@ -658,18 +737,167 @@ void VimMessageManager::toggleSelectedTag(const Akonadi::Item::List &items)
                                         [this, tag, addedCount, removedCount](const Akonadi::Item::List &, const QString &removeError) {
                                             if (!removeError.isEmpty()) {
                                                 finishCommand(removeError);
+                                                Q_EMIT selectedTagChangeFinished(false);
                                                 return;
                                             }
                                             finishCommand(tr("Seleção atualizada: %1 incluída(s), %2 removida(s).")
                                                               .arg(addedCount)
                                                               .arg(removedCount));
+                                            Q_EMIT selectedTagChangeFinished(true);
                                         });
                         });
         });
     });
 }
 
-void VimMessageManager::assignWorkflowTag(const QString &tagName,
+void VimMessageManager::clearTagsFromList(const QStringList &tagNames,
+                                          const QList<Akonadi::Item::Id> &currentListItemIds)
+{
+    if (mBusy) {
+        return;
+    }
+
+    QStringList names;
+    for (const QString &tagName : tagNames) {
+        if (requiredTagNames().contains(tagName) && !names.contains(tagName)) {
+            names.push_back(tagName);
+        }
+    }
+    if (names.isEmpty()) {
+        Q_EMIT statusMessage(tr("Nenhuma tag válida foi solicitada."));
+        return;
+    }
+
+    Akonadi::Item::List itemStubs;
+    itemStubs.reserve(currentListItemIds.size());
+    for (const Akonadi::Item::Id id : currentListItemIds) {
+        if (id > 0) {
+            itemStubs.push_back(Akonadi::Item(id));
+        }
+    }
+    itemStubs = uniqueValidItems(itemStubs);
+    if (itemStubs.isEmpty()) {
+        Q_EMIT statusMessage(tr("Nenhuma mensagem está visível na lista atual."));
+        return;
+    }
+
+    setBusy(true);
+    fetchItemsWithTags(itemStubs, [this, names](const Akonadi::Item::List &items, const QString &fetchError) {
+        if (!fetchError.isEmpty()) {
+            finishCommand(fetchError);
+            return;
+        }
+
+        const bool clearOrphanedDeletedMarkers = names.contains(deletedTagName);
+        Akonadi::Item::List changedItems;
+        for (const Akonadi::Item &source : items) {
+            Akonadi::Item item(source);
+            bool changed = false;
+            for (const Akonadi::Tag &tag : source.tags()) {
+                if (names.contains(tag.name())) {
+                    item.clearTag(tag);
+                    changed = true;
+                }
+            }
+            if (clearOrphanedDeletedMarkers && hasOrphanedDeletedMarker(source)) {
+                item.removeAttribute<Akonadi::EntityDeletedAttribute>();
+                changed = true;
+            }
+            if (changed) {
+                changedItems.push_back(item);
+            }
+        }
+
+        if (changedItems.isEmpty()) {
+            finishCommand(tr("Nenhuma das tags solicitadas está presente na lista atual."));
+            return;
+        }
+
+        const int changedCount = changedItems.size();
+        // Attribute removals are per-item deltas in Akonadi, so use one job per
+        // message. This also clears incomplete DELETED markers left by versions
+        // that used TrashJob without a configured destination.
+        auto changedItemsState = std::make_shared<Akonadi::Item::List>(std::move(changedItems));
+        auto pending = std::make_shared<int>(changedItemsState->size());
+        auto succeeded = std::make_shared<int>(0);
+        auto errors = std::make_shared<QStringList>();
+        for (const Akonadi::Item &item : std::as_const(*changedItemsState)) {
+            auto *modifyJob = new Akonadi::ItemModifyJob(item, this);
+            modifyJob->setIgnorePayload(true);
+            modifyJob->disableRevisionCheck();
+            connect(modifyJob,
+                    &Akonadi::ItemModifyJob::result,
+                    this,
+                    [this,
+                     names,
+                     clearOrphanedDeletedMarkers,
+                     changedItemsState,
+                     pending,
+                     succeeded,
+                     errors,
+                     changedCount](KJob *job) {
+                        if (job->error()) {
+                            errors->push_back(job->errorString());
+                        } else {
+                            ++*succeeded;
+                        }
+                        --*pending;
+                        if (*pending != 0) {
+                            return;
+                        }
+
+                        // A partially successful clear makes the previous undo
+                        // snapshot unreliable even when another item failed.
+                        if (*succeeded > 0 && mUndoTag.isValid() && names.contains(mUndoTag.name())) {
+                            mUndoTag = {};
+                            mUndoAddedItems.clear();
+                            mUndoRemovedItems.clear();
+                            Q_EMIT stateChanged();
+                        }
+                        if (!errors->isEmpty()) {
+                            finishCommand(tr("Não foi possível remover todas as tags da lista: %1").arg(joinedErrors(*errors)));
+                            return;
+                        }
+
+                        fetchItemsWithTags(
+                            *changedItemsState,
+                            [this, names, clearOrphanedDeletedMarkers, changedCount](const Akonadi::Item::List &verifiedItems,
+                                                                                  const QString &verifyError) {
+                                if (!verifyError.isEmpty()) {
+                                    finishCommand(verifyError);
+                                    return;
+                                }
+
+                                const auto stillTagged = std::find_if(
+                                    verifiedItems.cbegin(),
+                                    verifiedItems.cend(),
+                                    [&names, clearOrphanedDeletedMarkers](const Akonadi::Item &verifiedItem) {
+                                        const auto tags = verifiedItem.tags();
+                                        const bool hasRequestedTag =
+                                            std::any_of(tags.cbegin(), tags.cend(), [&names](const Akonadi::Tag &tag) {
+                                                return names.contains(tag.name());
+                                            });
+                                        return hasRequestedTag
+                                            || (clearOrphanedDeletedMarkers && hasOrphanedDeletedMarker(verifiedItem));
+                                    });
+                                if (verifiedItems.size() != changedCount || stillTagged != verifiedItems.cend()) {
+                                    finishCommand(tr("O Akonadi não confirmou a remoção de todas as tags da lista."));
+                                    return;
+                                }
+
+                                if (names.size() == 1 && names.constFirst() == selectedTagName) {
+                                    finishCommand(
+                                        tr("Seleção persistente removida de %1 mensagem(ns) da lista.").arg(changedCount));
+                                } else {
+                                    finishCommand(tr("Tags do plugin removidas de %1 mensagem(ns) da lista.").arg(changedCount));
+                                }
+                            });
+                    });
+        }
+    });
+}
+
+void VimMessageManager::toggleWorkflowTag(const QString &tagName,
                                           const Akonadi::Item::List &fallbackItems,
                                           const QList<Akonadi::Item::Id> &currentListItemIds)
 {
@@ -715,7 +943,7 @@ void VimMessageManager::assignWorkflowTag(const QString &tagName,
                                   }
 
                                   if (!targets.isEmpty()) {
-                                      assignWorkflowTagToItems(tagName, selectedTag, targets);
+                                      toggleWorkflowTagOnItems(tagName, targets);
                                   } else {
                                       addFallbackSelection(selectedTag, fallbackItems, tagName);
                                   }
@@ -752,95 +980,86 @@ void VimMessageManager::addFallbackSelection(const Akonadi::Tag &selectedTag,
                                                finishCommand(selectError);
                                                return;
                                            }
-                                           assignWorkflowTagToItems(workflowTagName, selectedTag, fetchedItems);
+                                           toggleWorkflowTagOnItems(workflowTagName, fetchedItems);
                                        });
                        });
 }
 
-void VimMessageManager::assignWorkflowTagToItems(const QString &tagName,
-                                                 const Akonadi::Tag &selectedTag,
-                                                 const Akonadi::Item::List &items)
+void VimMessageManager::toggleWorkflowTagOnItems(const QString &tagName, const Akonadi::Item::List &items)
 {
-    resolveTag(tagName, [this, tagName, selectedTag, items](const Akonadi::Tag &tag, const QString &tagError) {
+    resolveTag(tagName, [this, tagName, items](const Akonadi::Tag &tag, const QString &tagError) {
         if (!tagError.isEmpty()) {
             finishCommand(tagError);
             return;
         }
 
-        fetchItemsWithTags(items, [this, tagName, selectedTag, tag](const Akonadi::Item::List &fetchedItems, const QString &fetchError) {
-            if (!fetchError.isEmpty()) {
-                finishCommand(fetchError);
-                return;
-            }
-
-            Akonadi::Item::List changedItems;
-            for (const Akonadi::Item &item : fetchedItems) {
-                if (!hasTagNamed(item, tagName)) {
-                    changedItems.push_back(item);
+        fetchItemsWithTags(
+            items,
+            [this, tagName, tag](const Akonadi::Item::List &fetchedItems, const QString &fetchError) {
+                if (!fetchError.isEmpty()) {
+                    finishCommand(fetchError);
+                    return;
                 }
-            }
 
-            if (changedItems.isEmpty()) {
-                clearSelectionAfterAssignment(tagName, selectedTag, fetchedItems, 0, true);
-                return;
-            }
+                Akonadi::Item::List addItems;
+                Akonadi::Item::List removeItems;
+                for (const Akonadi::Item &item : fetchedItems) {
+                    if (hasTagNamed(item, tagName)) {
+                        removeItems.push_back(item);
+                    } else {
+                        addItems.push_back(item);
+                    }
+                }
+                if (addItems.isEmpty() && removeItems.isEmpty()) {
+                    finishCommand(tr("Nenhuma mensagem válida possui a seleção persistente."));
+                    return;
+                }
 
-            setTagState(tag,
-                        changedItems,
-                        true,
-                        [this, tagName, selectedTag, tag, fetchedItems](const Akonadi::Item::List &verifiedItems,
-                                                                      const QString &modifyError) {
-                            if (!modifyError.isEmpty()) {
-                                finishCommand(modifyError);
-                                return;
-                            }
-
-                            mUndoTag = tag;
-                            mUndoItems = verifiedItems;
-                            Q_EMIT stateChanged();
-                            clearSelectionAfterAssignment(tagName, selectedTag, fetchedItems, verifiedItems.size(), false);
-                        });
-        });
-    });
-}
-
-void VimMessageManager::clearSelectionAfterAssignment(const QString &tagName,
-                                                      const Akonadi::Tag &selectedTag,
-                                                      const Akonadi::Item::List &items,
-                                                      int assignedCount,
-                                                      bool alreadyTagged)
-{
-    fetchItemsWithTags(items, [this, tagName, selectedTag, assignedCount, alreadyTagged](const Akonadi::Item::List &fetchedItems,
-                                                                                       const QString &fetchError) {
-        if (!fetchError.isEmpty()) {
-            finishCommand(tr("A tag '%1' foi processada, mas a seleção não pôde ser limpa: %2").arg(tagName, fetchError));
-            return;
-        }
-
-        Akonadi::Item::List selectedItems;
-        for (const Akonadi::Item &item : fetchedItems) {
-            if (hasTagNamed(item, selectedTagName)) {
-                selectedItems.push_back(item);
-            }
-        }
-
-        setTagState(selectedTag,
-                    selectedItems,
-                    false,
-                    [this, tagName, assignedCount, alreadyTagged](const Akonadi::Item::List &, const QString &clearError) {
-                        if (!clearError.isEmpty()) {
-                            finishCommand(tr("A tag '%1' foi processada, mas a seleção não pôde ser limpa: %2")
-                                              .arg(tagName, clearError));
+                const int addedCount = addItems.size();
+                const int removedCount = removeItems.size();
+                setWorkflowTagStateAndClearSelection(
+                    tag,
+                    addItems,
+                    true,
+                    [this, tagName, tag, removeItems, addedCount, removedCount](
+                        const Akonadi::Item::List &verifiedAddedItems, const QString &addError) {
+                        if (!addError.isEmpty()) {
+                            finishCommand(addError);
                             return;
                         }
-                        if (alreadyTagged) {
-                            finishCommand(tr("As mensagens já possuíam a tag '%1'; a seleção foi limpa.").arg(tagName));
-                        } else {
-                            finishCommand(tr("Tag '%1' atribuída a %2 mensagem(ns); seleção limpa.")
-                                              .arg(tagName)
-                                              .arg(assignedCount));
-                        }
+
+                        setWorkflowTagStateAndClearSelection(
+                            tag,
+                            removeItems,
+                            false,
+                            [this,
+                             tagName,
+                             tag,
+                             verifiedAddedItems,
+                             addedCount,
+                             removedCount](const Akonadi::Item::List &verifiedRemovedItems, const QString &removeError) {
+                                if (!removeError.isEmpty()) {
+                                    if (!verifiedAddedItems.isEmpty()) {
+                                        mUndoTag = tag;
+                                        mUndoAddedItems = verifiedAddedItems;
+                                        mUndoRemovedItems.clear();
+                                        Q_EMIT stateChanged();
+                                    }
+                                    finishCommand(removeError);
+                                    return;
+                                }
+
+                                mUndoTag = tag;
+                                mUndoAddedItems = verifiedAddedItems;
+                                mUndoRemovedItems = verifiedRemovedItems;
+                                Q_EMIT stateChanged();
+                                finishCommand(tr("Tag '%1' alternada: %2 atribuída(s), %3 removida(s); seleção limpa.")
+                                                  .arg(tagName)
+                                                  .arg(addedCount)
+                                                  .arg(removedCount));
+                            });
                     });
+            });
     });
 }
 
@@ -852,25 +1071,37 @@ void VimMessageManager::undoLastTagAssignment()
 
     setBusy(true);
     const QString tagName = mUndoTag.name();
-    Akonadi::Item::List items = mUndoItems;
-    for (Akonadi::Item &item : items) {
-        item.clearTag(mUndoTag);
-    }
+    const Akonadi::Tag tag = mUndoTag;
+    const Akonadi::Item::List addedItems = mUndoAddedItems;
+    const Akonadi::Item::List removedItems = mUndoRemovedItems;
+    setTagState(tag,
+                addedItems,
+                false,
+                [this, tagName, tag, removedItems](const Akonadi::Item::List &, const QString &removeError) {
+                    if (!removeError.isEmpty()) {
+                        finishCommand(tr("Não foi possível desfazer a tag '%1': %2").arg(tagName, removeError));
+                        return;
+                    }
 
-    auto *modifyJob = new Akonadi::ItemModifyJob(items, this);
-    modifyJob->setIgnorePayload(true);
-    modifyJob->disableRevisionCheck();
-    connect(modifyJob, &Akonadi::ItemModifyJob::result, this, [this, tagName](KJob *job) {
-        if (job->error()) {
-            finishCommand(tr("Não foi possível desfazer a tag '%1': %2").arg(tagName, job->errorString()));
-            return;
-        }
+                    mUndoAddedItems.clear();
+                    setTagState(tag,
+                                removedItems,
+                                true,
+                                [this, tagName](const Akonadi::Item::List &, const QString &addError) {
+                                    if (!addError.isEmpty()) {
+                                        Q_EMIT stateChanged();
+                                        finishCommand(tr("A alternância da tag '%1' foi desfeita parcialmente: %2")
+                                                          .arg(tagName, addError));
+                                        return;
+                                    }
 
-        mUndoTag = {};
-        mUndoItems.clear();
-        Q_EMIT stateChanged();
-        finishCommand(tr("A atribuição da tag '%1' foi desfeita.").arg(tagName));
-    });
+                                    mUndoTag = {};
+                                    mUndoAddedItems.clear();
+                                    mUndoRemovedItems.clear();
+                                    Q_EMIT stateChanged();
+                                    finishCommand(tr("A alternância da tag '%1' foi desfeita.").arg(tagName));
+                                });
+                });
 }
 
 void VimMessageManager::applyTaggedActions(const Akonadi::Collection &collection)

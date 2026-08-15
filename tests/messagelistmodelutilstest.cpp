@@ -7,6 +7,7 @@
 
 #include <Akonadi/EntityTreeModel>
 
+#include <QItemSelectionModel>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QTest>
@@ -19,6 +20,7 @@ class MessageListModelUtilsTest final : public QObject
 private Q_SLOTS:
     void returnsEmptyForMissingViewOrModel();
     void enumeratesVisibleMessagesRecursivelyAndWithoutDuplicates();
+    void enumerationDoesNotDependOnMouseSelection();
 };
 
 namespace
@@ -63,6 +65,22 @@ void MessageListModelUtilsTest::enumeratesVisibleMessagesRecursivelyAndWithoutDu
     view.setRowHidden(3, threadHeader->index(), true);
 
     QCOMPARE(MessageListModelUtils::visibleItemIds(&view), QList<Akonadi::Item::Id>({11, 22}));
+}
+
+void MessageListModelUtilsTest::enumerationDoesNotDependOnMouseSelection()
+{
+    QStandardItemModel model;
+    model.appendRow(messageItem(101));
+    model.appendRow(messageItem(202));
+    model.appendRow(messageItem(303));
+
+    QTreeView view;
+    view.setModel(&model);
+    view.selectionModel()->select(model.index(1, 0), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    view.selectionModel()->setCurrentIndex(model.index(1, 0), QItemSelectionModel::NoUpdate);
+
+    QCOMPARE(view.selectionModel()->selectedRows().size(), 1);
+    QCOMPARE(MessageListModelUtils::visibleItemIds(&view), QList<Akonadi::Item::Id>({101, 202, 303}));
 }
 
 QTEST_MAIN(MessageListModelUtilsTest)
