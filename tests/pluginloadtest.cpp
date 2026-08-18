@@ -35,7 +35,10 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
 
     const KPluginMetaData metadata(QString::fromLocal8Bit(pluginPath));
     QVERIFY(metadata.isValid());
-    QCOMPARE(metadata.version(), QStringLiteral("1.2"));
+    // KMail treats KPlugin.Version as its GenericPlugin interface version,
+    // not as this project's release version. Main-view plugins must currently
+    // advertise 1.0 or KMail refuses to load them.
+    QCOMPARE(metadata.version(), QStringLiteral("1.0"));
     QVERIFY(metadata.isEnabledByDefault());
 
     auto result = KPluginFactory::instantiatePlugin<PimCommon::GenericPlugin>(metadata, this);

@@ -5,6 +5,6 @@
         "EnabledByDefault": true,
         "Name": "Vim-style message navigation",
         "Name[pt_BR]": "Navegação de mensagens no estilo Vim",
-        "Version": "1.2"
+        "Version": "1.0"
     }
 }
