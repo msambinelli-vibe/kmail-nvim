@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     KMailVimNavigation
-    VERSION 1.1.0
+    VERSION 1.2.0
     LANGUAGES CXX
 )
 
@@ -27,6 +27,7 @@ find_package(KPim6Akonadi REQUIRED)
 find_package(KPim6AkonadiMime REQUIRED)
 find_package(KPim6MessageList REQUIRED)
 find_package(KPim6MessageViewer REQUIRED)
+find_package(KPim6MailCommon REQUIRED)
 find_package(KPim6PimCommon REQUIRED)
 find_package(KPim6PimCommonAkonadi REQUIRED)
 
@@ -42,6 +43,12 @@ target_sources(
         src/messagelistmodelutils.h
         src/vimmessagemanager.cpp
         src/vimmessagemanager.h
+        src/quickfiltermodel.cpp
+        src/quickfiltermodel.h
+        src/quickfilterdialog.cpp
+        src/quickfilterdialog.h
+        src/quickfiltercontroller.cpp
+        src/quickfiltercontroller.h
         src/vimshortcutmapper.cpp
         src/vimshortcutmapper.h
 )
@@ -58,6 +65,7 @@ target_link_libraries(
         KPim6::AkonadiMime
         KPim6::MessageList
         KPim6::MessageViewer
+        KPim6::MailCommon
         KPim6::PimCommon
         KPim6::PimCommonAkonadi
 )
@@ -127,6 +135,34 @@ if(BUILD_TESTING)
     add_test(NAME messagelistmodelutilstest COMMAND messagelistmodelutilstest)
     set_tests_properties(
         messagelistmodelutilstest
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(quickfiltertest)
+    target_sources(
+        quickfiltertest
+        PRIVATE
+            tests/quickfiltertest.cpp
+            src/quickfiltermodel.cpp
+            src/quickfiltermodel.h
+            src/quickfilterdialog.cpp
+            src/quickfilterdialog.h
+    )
+    target_include_directories(quickfiltertest PRIVATE src)
+    target_link_libraries(
+        quickfiltertest
+        PRIVATE
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Widgets
+            Qt6::Test
+            KPim6::AkonadiCore
+            KPim6::AkonadiMime
+            KPim6::MailCommon
+    )
+    add_test(NAME quickfiltertest COMMAND quickfiltertest)
+    set_tests_properties(
+        quickfiltertest
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

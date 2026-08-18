@@ -35,7 +35,7 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
 
     const KPluginMetaData metadata(QString::fromLocal8Bit(pluginPath));
     QVERIFY(metadata.isValid());
-    QCOMPARE(metadata.version(), QStringLiteral("1.0"));
+    QCOMPARE(metadata.version(), QStringLiteral("1.2"));
     QVERIFY(metadata.isEnabledByDefault());
 
     auto result = KPluginFactory::instantiatePlugin<PimCommon::GenericPlugin>(metadata, this);
@@ -84,6 +84,11 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
                                             QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_C)),
                                             QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_D)),
                                             QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_C))});
+    auto *existingGf = collection.addAction(QStringLiteral("existing_gf"));
+    KActionCollection::setDefaultShortcuts(
+        existingGf,
+        {QKeySequence(QKeyCombination(Qt::NoModifier, Qt::Key_G), QKeyCombination(Qt::NoModifier, Qt::Key_F)),
+         QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_G), QKeyCombination(Qt::NoModifier, Qt::Key_F))});
 
     QTRY_VERIFY(next->shortcuts().contains(QKeySequence(Qt::Key_J)));
     QVERIFY(previous->shortcuts().contains(QKeySequence(Qt::Key_K)));
@@ -101,6 +106,9 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     QCOMPARE(existingDeleteAndClearAll->shortcuts(),
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_D)),
                                   QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_C))}));
+    QCOMPARE(existingGf->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_G),
+                                                QKeyCombination(Qt::NoModifier, Qt::Key_F))}));
 
     QVERIFY(collection.action(QStringLiteral("vim_scroll_message_down"))
                 ->shortcuts()
@@ -125,6 +133,11 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     QVERIFY(clearAllAction);
     QCOMPARE(clearAllAction->shortcuts(),
              QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::ShiftModifier, Qt::Key_C))}));
+    QAction *const quickFilterAction = collection.action(QStringLiteral("vim_create_quick_filter"));
+    QVERIFY(quickFilterAction);
+    QCOMPARE(quickFilterAction->shortcuts(),
+             QList<QKeySequence>({QKeySequence(QKeyCombination(Qt::NoModifier, Qt::Key_G),
+                                                QKeyCombination(Qt::NoModifier, Qt::Key_F))}));
 
     // Tags, filters, and folder shortcuts are created by KMail after its main
     // action setup. Newly inserted conflicts must trigger another mapping pass.
@@ -159,6 +172,7 @@ void PluginLoadTest::loadsThroughKPluginFactoryAndMapsAllDeferredActions()
     QVERIFY(deletedAction->isEnabled());
     QVERIFY(clearSelectedAction->isEnabled());
     QVERIFY(clearAllAction->isEnabled());
+    QVERIFY(quickFilterAction->isEnabled());
     QObject *messageManager = nullptr;
     for (QObject *child : interface->children()) {
         if (QLatin1StringView(child->metaObject()->className()) == QLatin1StringView("VimMessageManager")) {

@@ -14,6 +14,7 @@
 class KActionCollection;
 class QAction;
 class VimMessageManager;
+class QuickFilterController;
 
 namespace Akonadi
 {
@@ -43,6 +44,7 @@ private:
         TagSpam,
         ClearSelected,
         ClearAllTags,
+        QuickFilter,
         UndoTag,
         ApplyTags,
     };
@@ -68,10 +70,12 @@ private:
     QPointer<QAction> mSpamAction;
     QPointer<QAction> mClearSelectedAction;
     QPointer<QAction> mClearAllTagsAction;
+    QPointer<QAction> mQuickFilterAction;
     QPointer<QAction> mUndoAction;
     QPointer<QAction> mApplyAction;
     Akonadi::Item::List mItems;
     VimMessageManager *const mMessageManager;
+    QuickFilterController *const mQuickFilterController;
     PendingCommand mPendingCommand = PendingCommand::None;
     qint64 mSelectedToggleFolderId = -1;
     Akonadi::Item::Id mSelectedToggleItemId = -1;

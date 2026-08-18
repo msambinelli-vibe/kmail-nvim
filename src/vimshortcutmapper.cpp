@@ -31,6 +31,7 @@ const QKeySequence vimApplyShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_S
 const QKeySequence vimToggleSelectedShortcut(Qt::Key_Space);
 const QKeySequence vimClearSelectedShortcut(Qt::Key_C);
 const QKeySequence vimClearAllTagsShortcut(QKeyCombination(Qt::ShiftModifier, Qt::Key_C));
+const QKeySequence vimQuickFilterShortcut(QKeyCombination(Qt::NoModifier, Qt::Key_G), QKeyCombination(Qt::NoModifier, Qt::Key_F));
 const QKeySequence jumpToFolderFallback(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_J));
 
 const QList<QKeySequence> &reservedShortcuts()
@@ -51,6 +52,7 @@ const QList<QKeySequence> &reservedShortcuts()
         vimToggleSelectedShortcut,
         vimClearSelectedShortcut,
         vimClearAllTagsShortcut,
+        vimQuickFilterShortcut,
     };
     return shortcuts;
 }
@@ -72,6 +74,7 @@ const QHash<QString, QKeySequence> &targetShortcuts()
         {QStringLiteral("vim_toggle_selected"), vimToggleSelectedShortcut},
         {QStringLiteral("vim_clear_selected"), vimClearSelectedShortcut},
         {QStringLiteral("vim_clear_all_tags"), vimClearAllTagsShortcut},
+        {QStringLiteral("vim_create_quick_filter"), vimQuickFilterShortcut},
     };
     return shortcuts;
 }

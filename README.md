@@ -19,14 +19,51 @@ de mensagens:
   exibidas na lista;
 - `u`: desfazer a última alternância de tag de ação feita pelo plugin;
 - `S`: executar as ações pendentes em todas as mensagens da pasta atual.
+- `gf`: criar um filtro rápido a partir da mensagem atual.
 
 Os atalhos originais do KMail (`N`/→ e `P`/←) continuam funcionando. O plugin
 reaproveita as ações nativas do KMail, portanto a seleção, a visualização da
 mensagem e o tratamento de conversas continuam a cargo do próprio aplicativo.
-Como `j`, `a`, `d`, `s`, `c`, `C` e `Espaço` são reservados pelo plugin, os
+Como `j`, `a`, `d`, `s`, `c`, `C`, `gf` e `Espaço` são reservados pelo plugin, os
 atalhos de uma tecla conflitantes do KMail são removidos; as ações
 correspondentes continuam disponíveis nos menus. **Ir para pasta** também
 recebe `Ctrl+Shift+j`.
+
+## Filtros rápidos
+
+`gf` abre um assistente Qt operável integralmente pelo teclado. A primeira tela
+oferece condições extraídas da mensagem atual — `List-Id`, endereço e domínio
+do remetente e assunto. É possível marcar várias condições, combinadas com
+**AND**, e editar qualquer valor antes de continuar.
+
+Na segunda tela, escolha a intenção que o filtro adicionará às mensagens:
+`deleted`, `spam` ou `archived`. O filtro não exclui nem move mensagens
+imediatamente. Ele apenas adiciona a tag correspondente; a revisão visual e a
+operação efetiva continuam sendo feitas com `S`.
+
+Na última tela, o filtro pode ser aplicado somente às próximas mensagens,
+também à mensagem atual ou retroativamente a todas as correspondências da pasta
+atual. A prévia mostra a quantidade e uma lista paginada antes da confirmação.
+Independentemente dessa escolha, a nova regra fica ativa para mensagens futuras
+em todas as pastas reconhecidas como Inbox, em todas as contas.
+
+Teclas do assistente:
+
+- `j`/`k`: navegar;
+- `Espaço`: marcar uma condição ou escolher uma opção;
+- `Tab`: marcar a condição e avançar para a próxima;
+- `e`: editar o valor da condição na primeira tela;
+- `Enter`: confirmar a edição, avançar ou criar o filtro;
+- `Esc`/`q`: voltar; na primeira tela, cancelar;
+- `Ctrl+d`/`Ctrl+u`: avançar ou voltar uma página da prévia.
+
+As regras são gravadas pelo gerenciador nativo de filtros do KMail e inseridas
+antes das regras existentes, mas sem interromper o processamento posterior. O
+assistente se recusa a salvar enquanto o gerenciador nativo de filtros estiver
+aberto, evitando que uma cópia antiga da configuração sobrescreva a regra nova.
+O agente local do KMail aplica filtros após o recebimento/sincronização; por uma
+limitação do próprio agente, mensagens que já chegam com estado lido, spam ou
+ignorado podem não passar pelo fluxo automático.
 
 ## Tags e aplicação
 
@@ -84,12 +121,13 @@ são reconhecidos e corrigidos na próxima execução de `S`.
 - KDE Frameworks 6: CoreAddons e XmlGui;
 - KDE Frameworks 6: ConfigCore;
 - bibliotecas de desenvolvimento Akonadi, AkonadiMime, MessageViewer, PimCommon
-  e PimCommonAkonadi;
+  PimCommon, PimCommonAkonadi e MailCommon;
 - CMake 3.20 ou superior e um compilador C++17.
 
 No Arch Linux, as bibliotecas necessárias são fornecidas pelos pacotes de
-desenvolvimento já incluídos em `kmail`, `pimcommon`, `kcoreaddons`, `kxmlgui` e
-`qt6-base`; instale também `extra-cmake-modules`.
+desenvolvimento já incluídos em `kmail`, `mailcommon`, `pimcommon`,
+`kcoreaddons`, `kxmlgui` e `qt6-base`; instale também
+`extra-cmake-modules`.
 
 ## Compilar e testar
 

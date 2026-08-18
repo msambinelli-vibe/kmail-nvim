@@ -6,6 +6,7 @@
 #include "vimnavigationplugininterface.h"
 
 #include "messagelistmodelutils.h"
+#include "quickfiltercontroller.h"
 #include "vimmessagemanager.h"
 #include "vimshortcutmapper.h"
 
@@ -31,6 +32,7 @@
 VimNavigationPluginInterface::VimNavigationPluginInterface(QObject *parent)
     : PimCommon::GenericPluginInterface(parent)
     , mMessageManager(new VimMessageManager(this))
+    , mQuickFilterController(new QuickFilterController(mMessageManager, this))
 {
     connect(mMessageManager, &VimMessageManager::stateChanged, this, &VimNavigationPluginInterface::refreshActionStates);
     connect(mMessageManager, &VimMessageManager::statusMessage, this, [this](const QString &status) {
@@ -52,6 +54,11 @@ VimNavigationPluginInterface::VimNavigationPluginInterface(QObject *parent)
             return;
         }
         advanceToNextMessage();
+    });
+    connect(mQuickFilterController, &QuickFilterController::stateChanged, this, &VimNavigationPluginInterface::refreshActionStates);
+    connect(mQuickFilterController, &QuickFilterController::statusMessage, this, [this](const QString &status) {
+        PimCommon::BroadcastStatus::instance()->setTransientStatusMsg(status);
+        Q_EMIT message(status);
     });
 }
 
@@ -133,6 +140,14 @@ void VimNavigationPluginInterface::createAction(KActionCollection *actionCollect
         activateCommand(PendingCommand::ClearAllTags);
     });
 
+    mQuickFilterAction = createPluginAction(actionCollection,
+                                            QStringLiteral("vim_create_quick_filter"),
+                                            tr("Criar filtro rápido a partir da mensagem"),
+                                            QStringLiteral("view-filter"));
+    connect(mQuickFilterAction, &QAction::triggered, this, [this] {
+        activateCommand(PendingCommand::QuickFilter);
+    });
+
     mApplyAction = createPluginAction(actionCollection,
                                       QStringLiteral("vim_apply_tags"),
                                       tr("Aplicar ações das tags na pasta atual"),
@@ -189,6 +204,9 @@ void VimNavigationPluginInterface::exec()
                                             QStringLiteral("spam")},
                                            currentListItemIds());
         break;
+    case PendingCommand::QuickFilter:
+        mQuickFilterController->open(currentMessageId(), currentFolder(), parentWidget());
+        break;
     case PendingCommand::UndoTag:
         mMessageManager->undoLastTagAssignment();
         break;
@@ -230,7 +248,7 @@ QAction *VimNavigationPluginInterface::createPluginAction(KActionCollection *act
 
 void VimNavigationPluginInterface::activateCommand(PendingCommand command)
 {
-    if (mMessageManager->isBusy()) {
+    if (mMessageManager->isBusy() || mQuickFilterController->isOpen()) {
         return;
     }
     mPendingCommand = command;
@@ -308,7 +326,7 @@ Akonadi::Collection VimNavigationPluginInterface::currentFolder() const
 
 void VimNavigationPluginInterface::refreshActionStates()
 {
-    const bool idle = !mMessageManager->isBusy();
+    const bool idle = !mMessageManager->isBusy() && !mQuickFilterController->isOpen();
     if (mSelectedAction) {
         mSelectedAction->setEnabled(idle);
     }
@@ -326,6 +344,9 @@ void VimNavigationPluginInterface::refreshActionStates()
     }
     if (mClearAllTagsAction) {
         mClearAllTagsAction->setEnabled(idle);
+    }
+    if (mQuickFilterAction) {
+        mQuickFilterAction->setEnabled(idle);
     }
     if (mApplyAction) {
         mApplyAction->setEnabled(idle);

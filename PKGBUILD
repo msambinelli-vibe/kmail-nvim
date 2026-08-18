@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 pkgname=kmail-vim-navigation-git
-pkgver=1.1.0.r3.gdae6281
+pkgver=1.2.0.r8.gf955f60
 pkgrel=1
 pkgdesc='Vim-style navigation and deferred message actions for KMail (master branch)'
 arch=('x86_64')
@@ -17,6 +17,7 @@ depends=(
   'kcoreaddons'
   'kmail'
   'kxmlgui'
+  'mailcommon'
   'messagelib'
   'pimcommon'
   'qt6-base'
@@ -31,7 +32,7 @@ sha256sums=('SKIP')
 
 pkgver() {
   cd kmail-nvim
-  printf '1.1.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+  printf '1.2.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
 }
 
 build() {

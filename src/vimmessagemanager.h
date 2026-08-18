@@ -24,6 +24,9 @@ class VimMessageManager final : public QObject
     Q_OBJECT
 
 public:
+    using RequiredTagCallback = std::function<void(const Akonadi::Tag &, const QString &)>;
+    using TagApplicationCallback = std::function<void(int, const QString &)>;
+
     explicit VimMessageManager(QObject *parent = nullptr);
 
     [[nodiscard]] bool isBusy() const;
@@ -37,6 +40,10 @@ public:
     void clearTagsFromList(const QStringList &tagNames, const QList<Akonadi::Item::Id> &currentListItemIds);
     void undoLastTagAssignment();
     void applyTaggedActions(const Akonadi::Collection &collection);
+    void resolveRequiredTag(const QString &tagName, RequiredTagCallback callback);
+    void addRequiredTagToItems(const QString &tagName,
+                               const Akonadi::Item::List &items,
+                               TagApplicationCallback callback);
 
 Q_SIGNALS:
     void stateChanged();

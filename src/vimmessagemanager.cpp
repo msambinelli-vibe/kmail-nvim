@@ -186,6 +186,59 @@ bool VimMessageManager::canUndo() const
     return mUndoTag.isValid() && (!mUndoAddedItems.isEmpty() || !mUndoRemovedItems.isEmpty());
 }
 
+void VimMessageManager::resolveRequiredTag(const QString &tagName, RequiredTagCallback callback)
+{
+    if (!requiredTagNames().contains(tagName)) {
+        callback({}, tr("A tag '%1' não pertence ao fluxo deste plugin.").arg(tagName));
+        return;
+    }
+    resolveTag(tagName, std::move(callback));
+}
+
+void VimMessageManager::addRequiredTagToItems(const QString &tagName,
+                                              const Akonadi::Item::List &items,
+                                              TagApplicationCallback callback)
+{
+    if (!requiredTagNames().contains(tagName)) {
+        callback(0, tr("A tag '%1' não pertence ao fluxo deste plugin.").arg(tagName));
+        return;
+    }
+    if (items.isEmpty()) {
+        callback(0, {});
+        return;
+    }
+
+    resolveTag(tagName, [this, items, callback = std::move(callback)](const Akonadi::Tag &tag,
+                                                                     const QString &tagError) mutable {
+        if (!tagError.isEmpty()) {
+            callback(0, tagError);
+            return;
+        }
+        fetchItemsWithTags(items, [this, tag, callback = std::move(callback)](const Akonadi::Item::List &fetchedItems,
+                                                                             const QString &fetchError) mutable {
+            if (!fetchError.isEmpty()) {
+                callback(0, fetchError);
+                return;
+            }
+
+            Akonadi::Item::List untaggedItems;
+            for (const Akonadi::Item &item : fetchedItems) {
+                if (!hasTagNamed(item, tag.name())) {
+                    untaggedItems.push_back(item);
+                }
+            }
+            const int changedCount = untaggedItems.size();
+            setTagState(tag,
+                        untaggedItems,
+                        true,
+                        [changedCount, callback = std::move(callback)](const Akonadi::Item::List &,
+                                                                      const QString &changeError) mutable {
+                            callback(changeError.isEmpty() ? changedCount : 0, changeError);
+                        });
+        });
+    });
+}
+
 void VimMessageManager::setBusy(bool busy)
 {
     if (mBusy == busy) {
