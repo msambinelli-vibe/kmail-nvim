@@ -98,7 +98,8 @@ permite revisar as mensagens antes de executar `S`. Ao aplicar:
 
 - `deleted` move a mensagem para a lixeira da respectiva conta configurada no
   KMail;
-- `spam` atribui o estado de spam/junk do KMail;
+- `spam` atribui o estado de spam/junk do KMail e move a mensagem para a pasta
+  Spam da respectiva conta, com fallback para a pasta Spam padrão do KMail;
 - `archived` move a mensagem segundo a configuração de arquivamento da conta no
   KMail, incluindo pastas anuais ou mensais.
 
@@ -112,6 +113,9 @@ O plugin só remove as tags depois de confirmar a operação no Akonadi. Se não
 houver uma lixeira configurada, a mensagem permanece onde está e `deleted` é
 preservada. Marcadores incompletos deixados pela implementação antiga também
 são reconhecidos e corrigidos na próxima execução de `S`.
+
+Da mesma forma, se a conta não tiver uma pasta Spam configurada, a mensagem não
+é movida e a tag `spam` é preservada para uma nova tentativa.
 
 ## Requisitos
 

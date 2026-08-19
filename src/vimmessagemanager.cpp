@@ -49,6 +49,12 @@ struct DeleteActionState {
     QStringList errors;
 };
 
+struct SpamActionGroup {
+    Akonadi::Collection destination;
+    Akonadi::Item::List items;
+    Akonadi::Item::List itemsToMove;
+};
+
 const QStringList &requiredTagNames()
 {
     static const QStringList names = {selectedTagName, deletedTagName, archivedTagName, spamTagName};
@@ -115,6 +121,25 @@ Akonadi::Collection configuredTrashCollection(const Akonadi::Collection &source)
         trash = Akonadi::SpecialMailCollections::self()->defaultCollection(Akonadi::SpecialMailCollections::Trash);
     }
     return trash;
+}
+
+Akonadi::Collection configuredSpamCollection(const Akonadi::Collection &source)
+{
+    if (Akonadi::SpecialMailCollections::specialCollectionType(source) == Akonadi::SpecialMailCollections::Spam) {
+        return source;
+    }
+
+    Akonadi::Collection spam;
+    if (!source.resource().isEmpty()) {
+        const Akonadi::AgentInstance agent = Akonadi::AgentManager::self()->instance(source.resource());
+        if (agent.isValid()) {
+            spam = Akonadi::SpecialMailCollections::self()->collection(Akonadi::SpecialMailCollections::Spam, agent);
+        }
+    }
+    if (!spam.isValid()) {
+        spam = Akonadi::SpecialMailCollections::self()->defaultCollection(Akonadi::SpecialMailCollections::Spam);
+    }
+    return spam;
 }
 
 QByteArray pluginTagGid(const QString &tagName)
@@ -1355,23 +1380,152 @@ void VimMessageManager::startDeleteAction(const Akonadi::Item::List &items)
 
 void VimMessageManager::startSpamAction(const Akonadi::Item::List &items)
 {
-    Akonadi::Item::List changedItems = items;
-    for (Akonadi::Item &item : changedItems) {
-        item.setFlag(Akonadi::MessageFlags::Spam);
-        item.clearFlag(Akonadi::MessageFlags::Ham);
+    QList<Akonadi::Collection::Id> sourceIds;
+    QStringList setupErrors;
+    for (const Akonadi::Item &item : items) {
+        const Akonadi::Collection::Id sourceId = physicalCollectionId(item);
+        if (sourceId <= 0) {
+            setupErrors.push_back(tr("Não foi possível identificar a pasta de origem da mensagem %1.").arg(item.id()));
+        } else if (!sourceIds.contains(sourceId)) {
+            sourceIds.push_back(sourceId);
+        }
     }
 
-    auto *modifyJob = new Akonadi::ItemModifyJob(changedItems, this);
-    modifyJob->setIgnorePayload(true);
-    modifyJob->disableRevisionCheck();
-    connect(modifyJob, &Akonadi::ItemModifyJob::result, this, [this, items](KJob *job) {
+    if (sourceIds.isEmpty()) {
+        finishApplyOperation(joinedErrors(setupErrors));
+        return;
+    }
+
+    auto *sourceFetchJob = new Akonadi::CollectionFetchJob(sourceIds, Akonadi::CollectionFetchJob::Base, this);
+    connect(sourceFetchJob, &Akonadi::CollectionFetchJob::result, this, [this, sourceFetchJob, items, setupErrors](KJob *job) mutable {
         if (job->error()) {
-            finishApplyOperation(tr("Falha ao marcar mensagens como spam: %1").arg(job->errorString()));
+            finishApplyOperation(tr("Não foi possível consultar as pastas de origem das mensagens de spam: %1").arg(job->errorString()));
             return;
         }
-        clearWorkflowTags(items, [this](const QString &error) {
-            finishApplyOperation(error);
-        });
+
+        QHash<Akonadi::Collection::Id, Akonadi::Collection> sources;
+        for (const Akonadi::Collection &collection : sourceFetchJob->collections()) {
+            sources.insert(collection.id(), collection);
+        }
+
+        QList<SpamActionGroup> groups;
+        QHash<Akonadi::Collection::Id, qsizetype> groupIndexes;
+        for (const Akonadi::Item &item : items) {
+            const Akonadi::Collection::Id sourceId = physicalCollectionId(item);
+            if (sourceId <= 0) {
+                continue;
+            }
+
+            const Akonadi::Collection source = sources.value(sourceId);
+            if (!source.isValid()) {
+                setupErrors.push_back(tr("A pasta de origem da mensagem %1 não foi encontrada.").arg(item.id()));
+                continue;
+            }
+
+            const Akonadi::Collection destination = configuredSpamCollection(source);
+            if (!destination.isValid()) {
+                setupErrors.push_back(tr("Nenhuma pasta de spam está configurada para a conta da mensagem %1.").arg(item.id()));
+                continue;
+            }
+
+            qsizetype groupIndex = groupIndexes.value(destination.id(), -1);
+            if (groupIndex < 0) {
+                groupIndex = groups.size();
+                groupIndexes.insert(destination.id(), groupIndex);
+                groups.push_back({destination, {}, {}});
+            }
+            SpamActionGroup &group = groups[groupIndex];
+            group.items.push_back(item);
+            if (source.id() != destination.id()) {
+                group.itemsToMove.push_back(item);
+            }
+        }
+
+        if (groups.isEmpty()) {
+            finishApplyOperation(joinedErrors(setupErrors));
+            return;
+        }
+
+        auto state = std::make_shared<DeleteActionState>();
+        state->pendingJobs = groups.size();
+        state->errors = std::move(setupErrors);
+        const auto completeGroup = [this, state](const QString &error) {
+            if (!error.isEmpty()) {
+                state->errors.push_back(error);
+            }
+            --state->pendingJobs;
+            if (state->pendingJobs == 0) {
+                finishApplyOperation(joinedErrors(state->errors));
+            }
+        };
+
+        for (const SpamActionGroup &group : std::as_const(groups)) {
+            Akonadi::Item::List changedItems = group.items;
+            for (Akonadi::Item &item : changedItems) {
+                item.setFlag(Akonadi::MessageFlags::Spam);
+                item.clearFlag(Akonadi::MessageFlags::Ham);
+            }
+
+            const auto confirmDestination = [this, group, completeGroup] {
+                fetchItemsWithTags(
+                    group.items,
+                    [this, destination = group.destination, expectedCount = group.items.size(), completeGroup](
+                        const Akonadi::Item::List &fetchedItems, const QString &fetchError) {
+                        if (!fetchError.isEmpty()) {
+                            completeGroup(tr("As mensagens foram marcadas como spam, mas o destino não pôde ser confirmado: %1")
+                                              .arg(fetchError));
+                            return;
+                        }
+                        const auto wrongDestination = std::find_if(
+                            fetchedItems.cbegin(),
+                            fetchedItems.cend(),
+                            [destination](const Akonadi::Item &item) {
+                                return physicalCollectionId(item) != destination.id();
+                            });
+                        const auto missingSpamFlag = std::find_if(
+                            fetchedItems.cbegin(), fetchedItems.cend(), [](const Akonadi::Item &item) {
+                                return !item.hasFlag(Akonadi::MessageFlags::Spam);
+                            });
+                        if (fetchedItems.size() != expectedCount || wrongDestination != fetchedItems.cend()
+                            || missingSpamFlag != fetchedItems.cend()) {
+                            completeGroup(
+                                tr("O Akonadi não confirmou que todas as mensagens chegaram à pasta de spam e foram marcadas como spam."));
+                            return;
+                        }
+                        clearWorkflowTags(fetchedItems, completeGroup);
+                    });
+            };
+
+            auto *modifyJob = new Akonadi::ItemModifyJob(changedItems, this);
+            modifyJob->setIgnorePayload(true);
+            modifyJob->disableRevisionCheck();
+            connect(modifyJob,
+                    &Akonadi::ItemModifyJob::result,
+                    this,
+                    [this, group, confirmDestination, completeGroup](KJob *modifyResult) {
+                        if (modifyResult->error()) {
+                            completeGroup(tr("Falha ao marcar mensagens como spam: %1").arg(modifyResult->errorString()));
+                            return;
+                        }
+                        if (group.itemsToMove.isEmpty()) {
+                            confirmDestination();
+                            return;
+                        }
+
+                        auto *moveJob = new Akonadi::ItemMoveJob(group.itemsToMove, group.destination, this);
+                        connect(moveJob,
+                                &Akonadi::ItemMoveJob::result,
+                                this,
+                                [confirmDestination, completeGroup](KJob *moveResult) {
+                                    if (moveResult->error()) {
+                                        completeGroup(QObject::tr("Falha ao mover mensagens para a pasta de spam: %1")
+                                                          .arg(moveResult->errorString()));
+                                        return;
+                                    }
+                                    confirmDestination();
+                                });
+                    });
+        }
     });
 }
 
