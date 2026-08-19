@@ -10,12 +10,10 @@
 #include <QDialog>
 #include <QStringList>
 
-class QDialogButtonBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
-class QPushButton;
 class QStackedWidget;
 
 class QuickFilterDialog final : public QDialog
@@ -59,13 +57,18 @@ private:
     void refreshConditionRow(int row);
     void refreshRadioRows(QListWidget *list);
     void refreshPreviewPage();
-    void updateButtons();
+    void updateControls();
+    void updatePageChrome();
     [[nodiscard]] QListWidget *currentList() const;
 
     QList<QuickFilter::Condition> mConditions;
     QStackedWidget *mPages = nullptr;
+    QLabel *mAccountLabel = nullptr;
     QLabel *mStepLabel = nullptr;
+    QLabel *mPageTitleLabel = nullptr;
+    QLabel *mPageDescriptionLabel = nullptr;
     QLabel *mStatusLabel = nullptr;
+    QLabel *mHintLabel = nullptr;
     QListWidget *mConditionList = nullptr;
     QListWidget *mActionList = nullptr;
     QListWidget *mApplicationList = nullptr;
@@ -73,9 +76,6 @@ private:
     QListWidget *mPreviewList = nullptr;
     QLabel *mPreviewPageLabel = nullptr;
     QLineEdit *mEditor = nullptr;
-    QPushButton *mBackButton = nullptr;
-    QPushButton *mNextButton = nullptr;
-    QPushButton *mCancelButton = nullptr;
     QStringList mPreviewRows;
     int mPreviewTotal = -1;
     int mPreviewPage = 0;

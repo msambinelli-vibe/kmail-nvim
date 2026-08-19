@@ -8,6 +8,9 @@
 
 #include <KMime/Message>
 
+#include <QDialogButtonBox>
+#include <QFrame>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QSignalSpy>
@@ -107,11 +110,18 @@ void QuickFilterTest::keyboardFlowSupportsToggleEditAndNavigation()
     auto *editor = dialog.findChild<QLineEdit *>(QStringLiteral("quickFilterValueEditor"));
     auto *actionList = dialog.findChild<QListWidget *>(QStringLiteral("quickFilterActions"));
     auto *applicationList = dialog.findChild<QListWidget *>(QStringLiteral("quickFilterApplication"));
+    auto *surface = dialog.findChild<QFrame *>(QStringLiteral("quickFilterSurface"));
+    auto *hint = dialog.findChild<QLabel *>(QStringLiteral("quickFilterHint"));
     QVERIFY(conditionList);
     QVERIFY(editor);
     QVERIFY(actionList);
     QVERIFY(applicationList);
-
+    QVERIFY(surface);
+    QVERIFY(hint);
+    QVERIFY(dialog.findChild<QDialogButtonBox *>() == nullptr);
+    QVERIFY(!conditionList->alternatingRowColors());
+    QVERIFY(conditionList->visualItemRect(conditionList->item(0)).height() >= 60);
+    QVERIFY(hint->text().contains(QStringLiteral("j/k")));
     QCOMPARE(conditionList->currentRow(), 0);
     QTest::keyClick(conditionList, Qt::Key_Tab);
     QCOMPARE(conditionList->item(0)->checkState(), Qt::Unchecked);
