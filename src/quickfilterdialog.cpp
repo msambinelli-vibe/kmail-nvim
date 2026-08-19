@@ -165,7 +165,7 @@ void prepareList(QListWidget *list)
 QString conditionTitle(QuickFilter::ConditionKind kind)
 {
     switch (kind) {
-    case QuickFilter::ConditionKind::ListId:
+    case QuickFilter::ConditionKind::MailingList:
         return QObject::tr("Lista de distribuição");
     case QuickFilter::ConditionKind::Sender:
         return QObject::tr("Remetente");
@@ -180,7 +180,7 @@ QString conditionTitle(QuickFilter::ConditionKind kind)
 QString conditionIcon(QuickFilter::ConditionKind kind)
 {
     switch (kind) {
-    case QuickFilter::ConditionKind::ListId:
+    case QuickFilter::ConditionKind::MailingList:
         return QStringLiteral("mail-message-new-list");
     case QuickFilter::ConditionKind::Sender:
         return QStringLiteral("user-identity");

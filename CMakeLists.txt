@@ -26,6 +26,7 @@ find_package(KF6XmlGui REQUIRED)
 find_package(KPim6Akonadi REQUIRED)
 find_package(KPim6AkonadiMime REQUIRED)
 find_package(KPim6MessageList REQUIRED)
+find_package(KPim6MessageCore REQUIRED)
 find_package(KPim6MessageViewer REQUIRED)
 find_package(KPim6MailCommon REQUIRED)
 find_package(KPim6PimCommon REQUIRED)
@@ -64,6 +65,7 @@ target_link_libraries(
         KPim6::AkonadiCore
         KPim6::AkonadiMime
         KPim6::MessageList
+        KPim6::MessageCore
         KPim6::MessageViewer
         KPim6::MailCommon
         KPim6::PimCommon
@@ -159,6 +161,7 @@ if(BUILD_TESTING)
             KPim6::AkonadiCore
             KPim6::AkonadiMime
             KPim6::MailCommon
+            KPim6::MessageCore
     )
     add_test(NAME quickfiltertest COMMAND quickfiltertest)
     set_tests_properties(

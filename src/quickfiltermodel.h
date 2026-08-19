@@ -21,7 +21,7 @@ class Message;
 namespace QuickFilter
 {
 enum class ConditionKind {
-    ListId,
+    MailingList,
     Sender,
     SenderDomain,
     Subject,

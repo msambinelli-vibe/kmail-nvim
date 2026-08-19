@@ -32,9 +32,10 @@ recebe `Ctrl+Shift+j`.
 ## Filtros rápidos
 
 `gf` abre um assistente Qt operável integralmente pelo teclado. A primeira tela
-oferece condições extraídas da mensagem atual — `List-Id`, endereço e domínio
-do remetente e assunto. É possível marcar várias condições, combinadas com
-**AND**, e editar qualquer valor antes de continuar.
+oferece condições extraídas da mensagem atual — `List-ID` (ou outro cabeçalho
+de lista reconhecido pelo próprio KMail), endereço e domínio do remetente e
+assunto. É possível marcar várias condições, combinadas com **AND**, e editar
+qualquer valor antes de continuar.
 
 Na segunda tela, escolha a intenção que o filtro adicionará às mensagens:
 `deleted`, `spam` ou `archived`. O filtro não exclui nem move mensagens

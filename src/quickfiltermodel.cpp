@@ -8,6 +8,7 @@
 #include <MailCommon/SearchPattern>
 
 #include <KMime/Message>
+#include <MessageCore/MailingList>
 
 #include <QRegularExpression>
 
@@ -34,17 +35,38 @@ QString senderOf(const std::shared_ptr<KMime::Message> &message)
     return QString::fromUtf8(mailboxes.constFirst().address()).trimmed().toLower();
 }
 
-QString listIdOf(const std::shared_ptr<KMime::Message> &message)
+struct MailingListCondition {
+    QByteArray field;
+    QString value;
+
+    [[nodiscard]] bool isValid() const
+    {
+        return !field.isEmpty() && !value.isEmpty();
+    }
+};
+
+MailingListCondition mailingListConditionOf(const std::shared_ptr<KMime::Message> &message)
 {
     const auto *header = message ? message->headerByType("List-Id") : nullptr;
-    if (!header) {
-        return {};
+    if (header) {
+        const QString raw = header->asUnicodeString().trimmed();
+        static const QRegularExpression canonicalId(QStringLiteral("<[^<>\\s]+>"));
+        const QRegularExpressionMatch match = canonicalId.match(raw);
+        const QString value = match.hasMatch() ? match.captured() : raw;
+        if (!value.isEmpty()) {
+            return {QByteArrayLiteral("List-ID"), value};
+        }
     }
 
-    const QString raw = header->asUnicodeString().trimmed();
-    static const QRegularExpression canonicalId(QStringLiteral("<[^<>\\s]+>"));
-    const QRegularExpressionMatch match = canonicalId.match(raw);
-    return match.hasMatch() ? match.captured() : raw;
+    QByteArray field;
+    QString value;
+    if (message && !MessageCore::MailingList::name(message, field, value).isEmpty()) {
+        value = value.trimmed();
+        if (!field.isEmpty() && !value.isEmpty()) {
+            return {field, value};
+        }
+    }
+    return {};
 }
 
 QString senderDomainPattern(const QString &domain)
@@ -56,15 +78,15 @@ QString senderDomainPattern(const QString &domain)
 QList<QuickFilter::Condition> QuickFilter::conditionsFromMessage(const std::shared_ptr<KMime::Message> &message)
 {
     QList<Condition> result;
-    const QString listId = listIdOf(message);
+    const MailingListCondition mailingList = mailingListConditionOf(message);
     const QString sender = senderOf(message);
     const QString subject = subjectOf(message);
 
-    if (!listId.isEmpty()) {
-        result.push_back({ConditionKind::ListId,
-                          QByteArrayLiteral("List-Id"),
+    if (mailingList.isValid()) {
+        result.push_back({ConditionKind::MailingList,
+                          mailingList.field,
                           MailCommon::SearchRule::FuncContains,
-                          listId,
+                          mailingList.value,
                           true});
     }
     if (!sender.isEmpty()) {
@@ -72,7 +94,7 @@ QList<QuickFilter::Condition> QuickFilter::conditionsFromMessage(const std::shar
                           QByteArrayLiteral("From"),
                           MailCommon::SearchRule::FuncContains,
                           sender,
-                          listId.isEmpty()});
+                          !mailingList.isValid()});
 
         const qsizetype separator = sender.lastIndexOf(QLatin1Char('@'));
         const QString domain = separator >= 0 ? sender.mid(separator + 1).trimmed() : QString();
@@ -97,8 +119,8 @@ QList<QuickFilter::Condition> QuickFilter::conditionsFromMessage(const std::shar
 QString QuickFilter::conditionLabel(const Condition &condition)
 {
     switch (condition.kind) {
-    case ConditionKind::ListId:
-        return QObject::tr("List-Id contém %1").arg(condition.value);
+    case ConditionKind::MailingList:
+        return QObject::tr("%1 contém %2").arg(QString::fromLatin1(condition.field), condition.value);
     case ConditionKind::Sender:
         return QObject::tr("From contém %1").arg(condition.value);
     case ConditionKind::SenderDomain:

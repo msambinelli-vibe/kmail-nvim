@@ -22,6 +22,7 @@ class QuickFilterTest final : public QObject
 
 private Q_SLOTS:
     void extractsStrongCandidatesAndMatchesWithAnd();
+    void fallsBackToMailingListHeaderRecognizedByKMail();
     void domainMatchDoesNotAcceptLongerDomain();
     void keyboardFlowSupportsToggleEditAndNavigation();
 };
@@ -36,7 +37,7 @@ Akonadi::Item messageItem(Akonadi::Item::Id id,
     auto message = std::make_shared<KMime::Message>();
     QByteArray content = "From: " + from + "\nSubject: " + subject + "\n";
     if (!listId.isEmpty()) {
-        content += "List-Id: Example newsletter <" + listId + ">\n";
+        content += "List-ID: Example newsletter <" + listId + ">\n";
     }
     content += "Date: Tue, 18 Aug 2026 10:00:00 +0200\n\nBody";
     message->setContent(content);
@@ -59,7 +60,7 @@ void QuickFilterTest::extractsStrongCandidatesAndMatchesWithAnd()
     const auto conditions = QuickFilter::conditionsFromMessage(message);
 
     QCOMPARE(conditions.size(), 4);
-    QCOMPARE(conditions.at(0).kind, QuickFilter::ConditionKind::ListId);
+    QCOMPARE(conditions.at(0).kind, QuickFilter::ConditionKind::MailingList);
     QCOMPARE(conditions.at(0).value, QStringLiteral("<newsletter.example.com>"));
     QVERIFY(conditions.at(0).enabled);
     QVERIFY(!conditions.at(1).enabled);
@@ -88,10 +89,35 @@ void QuickFilterTest::domainMatchDoesNotAcceptLongerDomain()
                                   messageItem(2, QByteArrayLiteral("a@example.com.evil"), QByteArrayLiteral("B"))));
 }
 
+void QuickFilterTest::fallsBackToMailingListHeaderRecognizedByKMail()
+{
+    auto message = std::make_shared<KMime::Message>();
+    message->setContent("From: list-owner@example.com\n"
+                        "Subject: List update\n"
+                        "List-Post: <mailto:community@example.com>\n"
+                        "Date: Tue, 18 Aug 2026 10:00:00 +0200\n\nBody");
+    message->parse();
+
+    const auto conditions = QuickFilter::conditionsFromMessage(message);
+    QCOMPARE(conditions.size(), 4);
+    QCOMPARE(conditions.constFirst().kind, QuickFilter::ConditionKind::MailingList);
+    QCOMPARE(conditions.constFirst().field, QByteArrayLiteral("List-Post"));
+    QCOMPARE(conditions.constFirst().value, QStringLiteral("<mailto:community@example.com>"));
+    QVERIFY(conditions.constFirst().enabled);
+    QVERIFY(!conditions.at(1).enabled);
+    QCOMPARE(QuickFilter::conditionLabel(conditions.constFirst()),
+             QStringLiteral("List-Post contém <mailto:community@example.com>"));
+
+    Akonadi::Item item(3);
+    item.setMimeType(QStringLiteral("message/rfc822"));
+    item.setPayload(message);
+    QVERIFY(QuickFilter::matches({conditions.constFirst()}, item));
+}
+
 void QuickFilterTest::keyboardFlowSupportsToggleEditAndNavigation()
 {
     QList<QuickFilter::Condition> conditions = {
-        {QuickFilter::ConditionKind::ListId,
+        {QuickFilter::ConditionKind::MailingList,
          QByteArrayLiteral("List-Id"),
          MailCommon::SearchRule::FuncContains,
          QStringLiteral("<list.example>"),
