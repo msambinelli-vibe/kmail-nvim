@@ -139,6 +139,8 @@ QString conditionTitle(QuickFilter::ConditionKind kind)
         return QObject::tr("Remetente");
     case QuickFilter::ConditionKind::SenderDomain:
         return QObject::tr("Domínio do remetente");
+    case QuickFilter::ConditionKind::Recipient:
+        return QObject::tr("Destinatário");
     case QuickFilter::ConditionKind::Subject:
         return QObject::tr("Assunto");
     }
@@ -154,6 +156,8 @@ QString conditionIcon(QuickFilter::ConditionKind kind)
         return QStringLiteral("user-identity");
     case QuickFilter::ConditionKind::SenderDomain:
         return QStringLiteral("internet-services");
+    case QuickFilter::ConditionKind::Recipient:
+        return QStringLiteral("mail-receive");
     case QuickFilter::ConditionKind::Subject:
         return QStringLiteral("mail-message-new");
     }

@@ -144,7 +144,7 @@ void QuickFilterController::open(Akonadi::Item::Id currentItemId,
         const QList<QuickFilter::Condition> conditions = QuickFilter::conditionsFromMessage(message);
         if (conditions.isEmpty()) {
             reset();
-            Q_EMIT statusMessage(tr("A mensagem atual não possui remetente, List-Id ou assunto utilizável."));
+            Q_EMIT statusMessage(tr("A mensagem atual não possui remetente, destinatário, List-Id ou assunto utilizável."));
             return;
         }
 

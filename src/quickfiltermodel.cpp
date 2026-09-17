@@ -11,6 +11,7 @@
 #include <MessageCore/MailingList>
 
 #include <QRegularExpression>
+#include <QSet>
 
 #include <algorithm>
 
@@ -106,6 +107,22 @@ QList<QuickFilter::Condition> QuickFilter::conditionsFromMessage(const std::shar
                               false});
         }
     }
+    const auto *to = message ? message->to() : nullptr;
+    if (to) {
+        QSet<QString> seen;
+        for (const auto &mailbox : to->mailboxes()) {
+            const QString address = QString::fromUtf8(mailbox.address()).trimmed().toLower();
+            if (address.isEmpty() || seen.contains(address)) {
+                continue;
+            }
+            seen.insert(address);
+            result.push_back({ConditionKind::Recipient,
+                              QByteArrayLiteral("To"),
+                              MailCommon::SearchRule::FuncContains,
+                              address,
+                              false});
+        }
+    }
     if (!subject.isEmpty()) {
         result.push_back({ConditionKind::Subject,
                           QByteArrayLiteral("Subject"),
@@ -125,6 +142,8 @@ QString QuickFilter::conditionLabel(const Condition &condition)
         return QObject::tr("From contém %1").arg(condition.value);
     case ConditionKind::SenderDomain:
         return QObject::tr("Domínio do remetente: %1").arg(condition.value);
+    case ConditionKind::Recipient:
+        return QObject::tr("To contém %1").arg(condition.value);
     case ConditionKind::Subject:
         return QObject::tr("Assunto contém “%1”").arg(condition.value);
     }

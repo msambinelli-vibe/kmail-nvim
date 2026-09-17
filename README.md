@@ -33,8 +33,10 @@ recebe `Ctrl+Shift+j`.
 
 `gf` abre um assistente Qt sem moldura, operável integralmente pelo teclado. A primeira tela
 oferece condições extraídas da mensagem atual — `List-ID` (ou outro cabeçalho
-de lista reconhecido pelo próprio KMail), endereço e domínio do remetente e
-assunto. Escolha uma única condição com `j`/`k`, use `e` para editar o valor e
+de lista reconhecido pelo próprio KMail), endereço e domínio do remetente,
+destinatário (`To`) e assunto. Quando houver vários endereços no campo `To`,
+cada endereço distinto aparece como uma opção. Escolha uma única condição com
+`j`/`k`, use `e` para editar o valor e
 `Enter` para confirmar a opção em destaque e avançar. As três telas usam o
 destaque da linha, sem caixas de marcação ou botões de seleção.
 

@@ -24,6 +24,7 @@ private Q_SLOTS:
     void extractsStrongCandidatesAndMatchesWithAnd();
     void fallsBackToMailingListHeaderRecognizedByKMail();
     void domainMatchDoesNotAcceptLongerDomain();
+    void recipientConditionUsesOnlyToAndSupportsEditing();
     void keyboardFlowSupportsSingleChoiceEditAndNavigation();
 };
 
@@ -112,6 +113,74 @@ void QuickFilterTest::fallsBackToMailingListHeaderRecognizedByKMail()
     item.setMimeType(QStringLiteral("message/rfc822"));
     item.setPayload(message);
     QVERIFY(QuickFilter::matches({conditions.constFirst()}, item));
+}
+
+void QuickFilterTest::recipientConditionUsesOnlyToAndSupportsEditing()
+{
+    auto message = std::make_shared<KMime::Message>();
+    message->setContent("From: sender@example.com\n"
+                        "To: Alice <Alice@example.com>,\n"
+                        " Bob <bob@example.com>, Alice <alice@example.com>\n"
+                        "Cc: copy@example.com\n"
+                        "Subject: Update\n\nBody");
+    message->parse();
+    const auto conditions = QuickFilter::conditionsFromMessage(message);
+    QList<QuickFilter::Condition> recipients;
+    int recipientRow = -1;
+    for (int row = 0; row < conditions.size(); ++row) {
+        if (conditions.at(row).kind == QuickFilter::ConditionKind::Recipient) {
+            if (recipientRow < 0) {
+                recipientRow = row;
+            }
+            recipients.push_back(conditions.at(row));
+        }
+    }
+    QCOMPARE(recipients.size(), 2);
+    QCOMPARE(recipients.at(0).value, QStringLiteral("alice@example.com"));
+    QCOMPARE(recipients.at(1).value, QStringLiteral("bob@example.com"));
+    QCOMPARE(recipients.constFirst().field, QByteArrayLiteral("To"));
+    QCOMPARE(QuickFilter::conditionLabel(recipients.constFirst()), QStringLiteral("To contém alice@example.com"));
+
+    Akonadi::Item item(4);
+    item.setMimeType(QStringLiteral("message/rfc822"));
+    item.setPayload(message);
+    for (auto condition : recipients) {
+        condition.enabled = true;
+        QVERIFY(QuickFilter::matches({condition}, item));
+        auto other = messageItem(5, condition.value.toUtf8(), "Other message");
+        other.payload<std::shared_ptr<KMime::Message>>()->setContent(
+            "From: " + condition.value.toUtf8() + "\nTo: other@example.com\nCc: "
+            + condition.value.toUtf8() + "\n\nBody");
+        other.payload<std::shared_ptr<KMime::Message>>()->parse();
+        QVERIFY(!QuickFilter::matches({condition}, other));
+    }
+    const auto noToConditions = QuickFilter::conditionsFromMessage(
+        messageItem(6, "sender@example.com", "No To header").payload<std::shared_ptr<KMime::Message>>());
+    for (const auto &condition : noToConditions) {
+        QVERIFY(condition.kind != QuickFilter::ConditionKind::Recipient);
+    }
+
+    QuickFilterDialog dialog(QStringLiteral("Personal"), conditions);
+    dialog.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+    auto *list = dialog.findChild<QListWidget *>(QStringLiteral("quickFilterConditions"));
+    auto *editor = dialog.findChild<QLineEdit *>(QStringLiteral("quickFilterValueEditor"));
+    QVERIFY(list);
+    QVERIFY(editor);
+    for (int row = 0; row < recipientRow; ++row) {
+        QTest::keyClick(list, Qt::Key_J);
+    }
+    QCOMPARE(dialog.selectedConditions().size(), 1);
+    QCOMPARE(dialog.selectedConditions().constFirst().field, QByteArrayLiteral("To"));
+    QTest::keyClick(list, Qt::Key_E);
+    QTest::keyClicks(editor, QStringLiteral("bob@example.com"));
+    QTest::keyClick(editor, Qt::Key_Return);
+    const auto selected = dialog.selectedConditions();
+    QCOMPARE(selected.constFirst().field, QByteArrayLiteral("To"));
+    QCOMPARE(selected.constFirst().value, QStringLiteral("bob@example.com"));
+    QVERIFY(QuickFilter::matches(selected, item));
+    QTest::keyClick(list, Qt::Key_Return);
+    QVERIFY(dialog.findChild<QListWidget *>(QStringLiteral("quickFilterActions"))->isVisible());
 }
 
 void QuickFilterTest::keyboardFlowSupportsSingleChoiceEditAndNavigation()

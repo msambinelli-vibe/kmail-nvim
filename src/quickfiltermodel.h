@@ -24,6 +24,7 @@ enum class ConditionKind {
     MailingList,
     Sender,
     SenderDomain,
+    Recipient,
     Subject,
 };
 
