@@ -24,7 +24,7 @@ private Q_SLOTS:
     void extractsStrongCandidatesAndMatchesWithAnd();
     void fallsBackToMailingListHeaderRecognizedByKMail();
     void domainMatchDoesNotAcceptLongerDomain();
-    void keyboardFlowSupportsToggleEditAndNavigation();
+    void keyboardFlowSupportsSingleChoiceEditAndNavigation();
 };
 
 namespace
@@ -114,7 +114,7 @@ void QuickFilterTest::fallsBackToMailingListHeaderRecognizedByKMail()
     QVERIFY(QuickFilter::matches({conditions.constFirst()}, item));
 }
 
-void QuickFilterTest::keyboardFlowSupportsToggleEditAndNavigation()
+void QuickFilterTest::keyboardFlowSupportsSingleChoiceEditAndNavigation()
 {
     QList<QuickFilter::Condition> conditions = {
         {QuickFilter::ConditionKind::MailingList,
@@ -144,16 +144,28 @@ void QuickFilterTest::keyboardFlowSupportsToggleEditAndNavigation()
     QVERIFY(applicationList);
     QVERIFY(surface);
     QVERIFY(hint);
+    QVERIFY(dialog.windowFlags().testFlag(Qt::FramelessWindowHint));
+    for (const auto *list : {conditionList, actionList, applicationList}) {
+        for (int row = 0; row < list->count(); ++row) {
+            QVERIFY(!list->item(row)->flags().testFlag(Qt::ItemIsUserCheckable));
+            QVERIFY(!list->item(row)->data(Qt::CheckStateRole).isValid());
+        }
+    }
     QVERIFY(dialog.findChild<QDialogButtonBox *>() == nullptr);
     QVERIFY(!conditionList->alternatingRowColors());
     QVERIFY(conditionList->visualItemRect(conditionList->item(0)).height() >= 60);
     QVERIFY(hint->text().contains(QStringLiteral("j/k")));
     QCOMPARE(conditionList->currentRow(), 0);
-    QTest::keyClick(conditionList, Qt::Key_Tab);
-    QCOMPARE(conditionList->item(0)->checkState(), Qt::Unchecked);
+    QCOMPARE(dialog.selectedConditions().size(), 1);
+    QSignalSpy previewSpy(&dialog, &QuickFilterDialog::previewRequested);
+    QTest::keyClick(conditionList, Qt::Key_J);
     QCOMPARE(conditionList->currentRow(), 1);
+    QCOMPARE(dialog.selectedConditions().size(), 1);
+    QCOMPARE(dialog.selectedConditions().constFirst().kind, QuickFilter::ConditionKind::Subject);
+    QVERIFY(dialog.selectedConditions().constFirst().enabled);
+    QCOMPARE(previewSpy.count(), 1);
     QTest::keyClick(conditionList, Qt::Key_Space);
-    QCOMPARE(conditionList->item(1)->checkState(), Qt::Checked);
+    QCOMPARE(dialog.selectedConditions().size(), 1);
     QTest::keyClick(conditionList, Qt::Key_E);
     QVERIFY(editor->isVisible());
     editor->selectAll();
@@ -161,6 +173,7 @@ void QuickFilterTest::keyboardFlowSupportsToggleEditAndNavigation()
     QTest::keyClick(editor, Qt::Key_Return);
     QVERIFY(!editor->isVisible());
     QCOMPARE(dialog.selectedConditions().constFirst().value, QStringLiteral("Edited subject"));
+    QVERIFY(conditionList->isVisible());
 
     QTest::keyClick(conditionList, Qt::Key_Return);
     QVERIFY(actionList->isVisible());
@@ -168,12 +181,31 @@ void QuickFilterTest::keyboardFlowSupportsToggleEditAndNavigation()
     QCOMPARE(dialog.workflowAction(), QuickFilter::WorkflowAction::Spam);
     QTest::keyClick(actionList, Qt::Key_Return);
     QVERIFY(applicationList->isVisible());
-    QCOMPARE(dialog.existingMessagesMode(), QuickFilter::ExistingMessages::CurrentMessage);
+    QCOMPARE(dialog.existingMessagesMode(), QuickFilter::ExistingMessages::CurrentFolder);
 
-    dialog.setPreview({QStringLiteral("2026-08-18 · sender · subject")}, 1);
     QSignalSpy finishSpy(&dialog, &QuickFilterDialog::finishRequested);
     QTest::keyClick(applicationList, Qt::Key_Return);
+    QCOMPARE(finishSpy.count(), 0); // Wait for the retroactive preview before saving.
+    dialog.setPreview({QStringLiteral("2026-08-18 · sender · subject")}, 1);
+    QTest::keyClick(applicationList, Qt::Key_Return);
     QCOMPARE(finishSpy.count(), 1);
+
+    QTest::keyClick(applicationList, Qt::Key_Escape);
+    QVERIFY(actionList->isVisible());
+    QTest::keyClick(actionList, Qt::Key_Escape);
+    QVERIFY(conditionList->isVisible());
+    QCOMPARE(conditionList->currentRow(), 1);
+    QTest::keyClick(conditionList, Qt::Key_K);
+    QCOMPARE(dialog.selectedConditions().size(), 1);
+    QCOMPARE(dialog.selectedConditions().constFirst().kind, QuickFilter::ConditionKind::MailingList);
+    QTest::keyClick(conditionList, Qt::Key_J);
+    QTest::keyClick(conditionList, Qt::Key_E);
+    QTest::keyClicks(editor, QStringLiteral("Discard this edit"));
+    QTest::keyClick(editor, Qt::Key_Escape);
+    QCOMPARE(dialog.selectedConditions().constFirst().value, QStringLiteral("Edited subject"));
+    QSignalSpy rejectedSpy(&dialog, &QDialog::rejected);
+    QTest::keyClick(conditionList, Qt::Key_Q);
+    QCOMPARE(rejectedSpy.count(), 1);
 }
 
 QTEST_MAIN(QuickFilterTest)

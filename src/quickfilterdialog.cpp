@@ -13,7 +13,6 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPainter>
-#include <QPainterPath>
 #include <QRegularExpression>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>
@@ -26,7 +25,6 @@ namespace
 enum ItemDataRole {
     PrimaryTextRole = Qt::UserRole + 1,
     SecondaryTextRole,
-    ChoiceMarkerRole,
 };
 
 QColor translucent(QColor color, int alpha)
@@ -77,11 +75,7 @@ public:
             textLeft = tile.right() + 13;
         }
 
-        const bool checkable = index.data(Qt::CheckStateRole).isValid();
-        const bool checked = index.data(Qt::CheckStateRole).toInt() == Qt::Checked;
-        const bool choice = index.data(ChoiceMarkerRole).toBool();
-        const qreal markerWidth = checkable ? 40 : 12;
-        const QRectF textRect(textLeft, card.top() + 10, card.right() - textLeft - markerWidth, card.height() - 20);
+        const QRectF textRect(textLeft, card.top() + 10, card.right() - textLeft - 12, card.height() - 20);
 
         QString primary = index.data(PrimaryTextRole).toString();
         if (primary.isEmpty()) {
@@ -107,32 +101,6 @@ public:
             painter->drawText(QRectF(textRect.left(), textRect.bottom() - secondaryMetrics.height(), textRect.width(), secondaryMetrics.height()),
                               Qt::AlignLeft | Qt::AlignVCenter,
                               secondaryMetrics.elidedText(secondary, Qt::ElideRight, qRound(textRect.width())));
-        }
-
-        if (checkable) {
-            const QPointF center(card.right() - 20, card.center().y());
-            painter->setPen(QPen(checked ? accent : translucent(palette.color(QPalette::Text), 72), checked ? 1.5 : 1.2));
-            painter->setBrush(checked ? accent : translucent(palette.color(QPalette::Text), 10));
-            if (choice) {
-                painter->drawEllipse(center, 9, 9);
-                if (checked) {
-                    painter->setBrush(palette.color(QPalette::HighlightedText));
-                    painter->setPen(Qt::NoPen);
-                    painter->drawEllipse(center, 3, 3);
-                }
-            } else {
-                const QRectF box(center.x() - 9, center.y() - 9, 18, 18);
-                painter->drawRoundedRect(box, 5, 5);
-                if (checked) {
-                    QPainterPath check;
-                    check.moveTo(center.x() - 4.5, center.y());
-                    check.lineTo(center.x() - 1, center.y() + 3.5);
-                    check.lineTo(center.x() + 5, center.y() - 4);
-                    painter->setBrush(Qt::NoBrush);
-                    painter->setPen(QPen(palette.color(QPalette::HighlightedText), 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-                    painter->drawPath(check);
-                }
-            }
         }
 
         painter->restore();
@@ -207,11 +175,9 @@ void addChoiceRow(QListWidget *list,
                   const QString &iconName)
 {
     auto *item = new QListWidgetItem(title, list);
-    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
-    item->setCheckState(Qt::Unchecked);
+    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
     item->setData(PrimaryTextRole, title);
     item->setData(SecondaryTextRole, description);
-    item->setData(ChoiceMarkerRole, true);
     item->setIcon(QIcon::fromTheme(iconName));
 }
 }
@@ -223,6 +189,7 @@ QuickFilterDialog::QuickFilterDialog(const QString &accountName,
     , mConditions(conditions)
 {
     setObjectName(QStringLiteral("vimQuickFilterDialog"));
+    setWindowFlag(Qt::FramelessWindowHint);
     setWindowTitle(accountName.isEmpty() ? tr("Criar filtro rápido")
                                          : tr("Criar filtro rápido — %1").arg(accountName));
     setWindowModality(Qt::WindowModal);
@@ -319,20 +286,14 @@ QWidget *QuickFilterDialog::createConditionsPage()
     for (qsizetype row = 0; row < mConditions.size(); ++row) {
         const QuickFilter::Condition &condition = mConditions.at(row);
         auto *item = new QListWidgetItem(QuickFilter::conditionLabel(condition), mConditionList);
-        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setCheckState(condition.enabled ? Qt::Checked : Qt::Unchecked);
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
         setConditionPresentation(item, condition);
     }
     if (mConditionList->count() > 0) {
         mConditionList->setCurrentRow(0);
     }
-    connect(mConditionList, &QListWidget::itemChanged, this, [this](QListWidgetItem *item) {
-        const int row = mConditionList->row(item);
-        if (row >= 0 && row < mConditions.size()) {
-            mConditions[row].enabled = item->checkState() == Qt::Checked;
-            updateControls();
-            Q_EMIT previewRequested();
-        }
+    connect(mConditionList, &QListWidget::currentRowChanged, this, [this] {
+        Q_EMIT previewRequested();
     });
     layout->addWidget(mConditionList, 1);
 
@@ -356,13 +317,6 @@ QWidget *QuickFilterDialog::createActionPage()
     addChoiceRow(mActionList, tr("Marcar como spam"), tr("Adiciona a tag spam"), QStringLiteral("mail-mark-junk"));
     addChoiceRow(mActionList, tr("Arquivar"), tr("Adiciona a tag archived"), QStringLiteral("folder-documents"));
     mActionList->setCurrentRow(0);
-    connect(mActionList, &QListWidget::currentRowChanged, this, [this] {
-        refreshRadioRows(mActionList);
-    });
-    connect(mActionList, &QListWidget::itemClicked, this, [this] {
-        refreshRadioRows(mActionList);
-    });
-    refreshRadioRows(mActionList);
     layout->addWidget(mActionList, 1);
     return page;
 }
@@ -389,12 +343,10 @@ QWidget *QuickFilterDialog::createApplicationPage()
                  QStringLiteral("view-refresh"));
     mApplicationList->setFixedHeight(210);
     mApplicationList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    mApplicationList->setCurrentRow(1);
+    mApplicationList->setCurrentRow(0);
     connect(mApplicationList, &QListWidget::currentRowChanged, this, [this] {
-        refreshRadioRows(mApplicationList);
         updateControls();
     });
-    refreshRadioRows(mApplicationList);
     layout->addWidget(mApplicationList);
 
     mPreviewSummary = new QLabel(tr("Prévia: carregando mensagens da pasta…"), page);
@@ -414,13 +366,13 @@ QWidget *QuickFilterDialog::createApplicationPage()
 
 QList<QuickFilter::Condition> QuickFilterDialog::selectedConditions() const
 {
-    QList<QuickFilter::Condition> result;
-    for (const QuickFilter::Condition &condition : mConditions) {
-        if (condition.enabled && !condition.value.trimmed().isEmpty()) {
-            result.push_back(condition);
-        }
+    const int row = mConditionList->currentRow();
+    if (row < 0 || row >= mConditions.size() || mConditions.at(row).value.trimmed().isEmpty()) {
+        return {};
     }
-    return result;
+    QuickFilter::Condition condition = mConditions.at(row);
+    condition.enabled = true;
+    return {condition};
 }
 
 QuickFilter::WorkflowAction QuickFilterDialog::workflowAction() const
@@ -550,8 +502,7 @@ void QuickFilterDialog::keyPressEvent(QKeyEvent *event)
         event->accept();
         return;
     }
-    if (modifiers == Qt::NoModifier && (event->key() == Qt::Key_Space || event->key() == Qt::Key_Tab)) {
-        activateCurrentRow(event->key() == Qt::Key_Tab);
+    if (modifiers == Qt::NoModifier && event->key() == Qt::Key_Space) {
         event->accept();
         return;
     }
@@ -585,7 +536,7 @@ void QuickFilterDialog::goBack()
 void QuickFilterDialog::goForward()
 {
     if (mPages->currentIndex() == 0 && selectedConditions().isEmpty()) {
-        showError(tr("Marque ao menos uma condição."));
+        showError(tr("Escolha uma condição com valor não vazio."));
         return;
     }
     if (mPages->currentIndex() < 2) {
@@ -635,23 +586,6 @@ void QuickFilterDialog::moveCurrentRow(int delta)
     list->setCurrentRow(std::clamp(current + delta, 0, list->count() - 1));
 }
 
-void QuickFilterDialog::activateCurrentRow(bool advanceAfterToggle)
-{
-    QListWidget *const list = currentList();
-    if (!list || list->currentRow() < 0) {
-        return;
-    }
-    if (list == mConditionList) {
-        QListWidgetItem *const item = list->currentItem();
-        item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
-        if (advanceAfterToggle) {
-            moveCurrentRow(1);
-        }
-    } else {
-        refreshRadioRows(list);
-    }
-}
-
 void QuickFilterDialog::startEditingCondition()
 {
     const int row = mConditionList->currentRow();
@@ -692,17 +626,6 @@ void QuickFilterDialog::refreshConditionRow(int row)
     }
 }
 
-void QuickFilterDialog::refreshRadioRows(QListWidget *list)
-{
-    if (!list) {
-        return;
-    }
-    for (int row = 0; row < list->count(); ++row) {
-        QListWidgetItem *const item = list->item(row);
-        item->setCheckState(row == list->currentRow() ? Qt::Checked : Qt::Unchecked);
-    }
-}
-
 void QuickFilterDialog::refreshPreviewPage()
 {
     mPreviewList->clear();
@@ -740,18 +663,18 @@ void QuickFilterDialog::updatePageChrome()
 
     const int page = mPages->currentIndex();
     static const QStringList titles = {
-        tr("Escolha as condições"),
+        tr("Escolha a condição"),
         tr("Escolha a ação"),
         tr("Escolha quando aplicar"),
     };
     static const QStringList descriptions = {
-        tr("As condições marcadas serão combinadas com AND."),
+        tr("Use Enter para confirmar a opção em destaque."),
         tr("O filtro adiciona uma tag; use S para efetivar a operação."),
         tr("A regra será aplicada a novas mensagens em todas as Inboxes."),
     };
     static const QStringList hints = {
-        tr("j/k  navegar    espaço  marcar    e  editar    ↵  continuar    esc  cancelar"),
-        tr("j/k  navegar    espaço  escolher    ↵  continuar    esc  voltar"),
+        tr("j/k  navegar    e  editar    ↵  escolher e continuar    esc  cancelar"),
+        tr("j/k  navegar    ↵  escolher e continuar    esc  voltar"),
         tr("j/k  navegar    ctrl+d/u  página    ↵  criar filtro    esc  voltar"),
     };
 

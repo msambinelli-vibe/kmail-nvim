@@ -31,11 +31,12 @@ recebe `Ctrl+Shift+j`.
 
 ## Filtros rápidos
 
-`gf` abre um assistente Qt operável integralmente pelo teclado. A primeira tela
+`gf` abre um assistente Qt sem moldura, operável integralmente pelo teclado. A primeira tela
 oferece condições extraídas da mensagem atual — `List-ID` (ou outro cabeçalho
 de lista reconhecido pelo próprio KMail), endereço e domínio do remetente e
-assunto. É possível marcar várias condições, combinadas com **AND**, e editar
-qualquer valor antes de continuar.
+assunto. Escolha uma única condição com `j`/`k`, use `e` para editar o valor e
+`Enter` para confirmar a opção em destaque e avançar. As três telas usam o
+destaque da linha, sem caixas de marcação ou botões de seleção.
 
 Na segunda tela, escolha a intenção que o filtro adicionará às mensagens:
 `deleted`, `spam` ou `archived`. O filtro não exclui nem move mensagens
@@ -44,17 +45,16 @@ operação efetiva continuam sendo feitas com `S`.
 
 Na última tela, o filtro pode ser aplicado somente às próximas mensagens,
 também à mensagem atual ou retroativamente a todas as correspondências da pasta
-atual. A prévia mostra a quantidade e uma lista paginada antes da confirmação.
+atual. “Mensagens desta pasta” é a opção inicial. A prévia mostra a quantidade
+e uma lista paginada antes da confirmação.
 Independentemente dessa escolha, a nova regra fica ativa para mensagens futuras
 em todas as pastas reconhecidas como Inbox, em todas as contas.
 
 Teclas do assistente:
 
 - `j`/`k`: navegar;
-- `Espaço`: marcar uma condição ou escolher uma opção;
-- `Tab`: marcar a condição e avançar para a próxima;
 - `e`: editar o valor da condição na primeira tela;
-- `Enter`: confirmar a edição, avançar ou criar o filtro;
+- `Enter`: confirmar a edição, escolher a linha em destaque e avançar, ou criar o filtro;
 - `Esc`/`q`: voltar; na primeira tela, cancelar;
 - `Ctrl+d`/`Ctrl+u`: avançar ou voltar uma página da prévia.
 

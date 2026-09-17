@@ -237,7 +237,7 @@ void QuickFilterController::finishRequested()
     draft.action = mDialog->workflowAction();
     draft.existingMessages = mDialog->existingMessagesMode();
     if (draft.conditions.isEmpty()) {
-        fail(tr("Marque ao menos uma condição."));
+        fail(tr("Escolha uma condição com valor não vazio."));
         return;
     }
     if (draft.existingMessages == QuickFilter::ExistingMessages::CurrentFolder && !mFolderFetchFinished) {
@@ -246,7 +246,7 @@ void QuickFilterController::finishRequested()
     }
     if (draft.existingMessages == QuickFilter::ExistingMessages::CurrentMessage
         && !QuickFilter::matches(draft.conditions, mSourceItem)) {
-        fail(tr("Após a edição, a mensagem atual não satisfaz todas as condições do filtro."));
+        fail(tr("Após a edição, a mensagem atual não satisfaz a condição do filtro."));
         return;
     }
     if (draft.action == QuickFilter::WorkflowAction::Deleted

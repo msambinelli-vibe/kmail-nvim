@@ -51,11 +51,9 @@ private:
     void goForward();
     void setPage(int index);
     void moveCurrentRow(int delta);
-    void activateCurrentRow(bool advanceAfterToggle);
     void startEditingCondition();
     void finishEditingCondition(bool acceptChanges);
     void refreshConditionRow(int row);
-    void refreshRadioRows(QListWidget *list);
     void refreshPreviewPage();
     void updateControls();
     void updatePageChrome();
